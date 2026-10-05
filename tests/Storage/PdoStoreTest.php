@@ -6,6 +6,7 @@ namespace IanFoxDev\Ledger\Tests\Storage;
 
 use IanFoxDev\Ledger\Account;
 use IanFoxDev\Ledger\Exception\AlreadyReversed;
+use IanFoxDev\Ledger\Exception\ConcurrentWrite;
 use IanFoxDev\Ledger\Exception\IdempotencyConflict;
 use IanFoxDev\Ledger\Exception\InsufficientFunds;
 use IanFoxDev\Ledger\Ledger;
@@ -197,6 +198,30 @@ final class PdoStoreTest extends TestCase
 
         self::assertSame($first->id, $retry->id);
         self::assertSame('500', (string) $ledger->credits()->available('customer:7:credits'));
+    }
+
+    /**
+     * Inside the caller's REPEATABLE READ transaction the end of a chain is read from the
+     * snapshot. PostgreSQL then refuses the posting on its primary key.
+     */
+    public function testARaceUnderRepeatableReadInPostgresqlIsAConcurrentWrite(): void
+    {
+        $pdo = Databases::fresh('LEDGER_PG_DSN');
+        $ledger = $this->ledger($pdo);
+        $other = new Ledger(new PdoStore(Databases::connect('LEDGER_PG_DSN')), new FixedClock());
+
+        $pdo->exec('BEGIN ISOLATION LEVEL REPEATABLE READ');
+        $this->rowsIn($pdo, 'ledger_postings');
+        $other->transfer('pay:1', 'user:42', 'revenue', 1_00);
+        try {
+            $ledger->transfer('pay:2', 'user:42', 'revenue', 1_00);
+            self::fail('expected ConcurrentWrite');
+        } catch (ConcurrentWrite $e) {
+            self::assertStringContainsString('run ledger writes at READ COMMITTED', $e->getMessage());
+        } finally {
+            $pdo->rollBack();
+        }
+        self::assertSame('900', (string) $ledger->balance('user:42'));
     }
 
     #[DataProvider('databases')]

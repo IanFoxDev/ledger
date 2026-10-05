@@ -7,6 +7,7 @@ namespace IanFoxDev\Ledger\Storage;
 use IanFoxDev\Ledger\Account;
 use IanFoxDev\Ledger\AccountType;
 use IanFoxDev\Ledger\Amount;
+use IanFoxDev\Ledger\Exception\ConcurrentWrite;
 use IanFoxDev\Ledger\Posting;
 use IanFoxDev\Ledger\Side;
 use IanFoxDev\Ledger\Transaction;
@@ -17,9 +18,9 @@ use IanFoxDev\Ledger\Transaction;
  * your transaction.
  *
  * A transaction the ledger opens itself runs at READ COMMITTED. When it joins yours, yours
- * decides: READ COMMITTED is what it is tested with. Under MySQL's default REPEATABLE READ
- * the writes stay correct, but two of them on accounts without postings can deadlock
- * (error 1213) and must be retried.
+ * decides: READ COMMITTED is what it is tested with. Under REPEATABLE READ the writes stay
+ * correct, but a race fails instead of waiting: ConcurrentWrite in PostgreSQL, and in
+ * MySQL a deadlock (error 1213) on accounts without postings. Both must be retried.
  */
 final readonly class PdoStore implements Store
 {
@@ -201,7 +202,7 @@ final readonly class PdoStore implements Store
             $statement->execute($values);
             $id = $statement->fetchColumn();
             if ($id === false) {
-                if ($this->transactionByKey($draft->key) !== null) {
+                if ($draft->reverses === null || $this->transactionByKey($draft->key) !== null) {
                     throw new DuplicateKey($draft->key);
                 }
                 throw new DuplicateReversal((string) $draft->reverses);
@@ -211,7 +212,18 @@ final readonly class PdoStore implements Store
 
         $insert = $this->pdo->prepare('INSERT INTO ledger_postings (account, sequence, transaction_id, position, side, amount, balance_after) VALUES (?, ?, ?, ?, ?, ?, ?)');
         foreach ($draft->postings as $position => $posting) {
-            $insert->execute([$posting->account, $posting->sequence, $id, $position, $posting->side->value, (string) $posting->amount, (string) $posting->balanceAfter]);
+            try {
+                $insert->execute([$posting->account, $posting->sequence, $id, $position, $posting->side->value, (string) $posting->amount, (string) $posting->balanceAfter]);
+            } catch (\PDOException $e) {
+                if (\in_array($e->getCode(), ['23505', '23000'], true) && preg_match('/ledger_postings[._]p/i', $e->getMessage()) === 1) {
+                    throw new ConcurrentWrite(\sprintf(
+                        'Posting #%d of account "%s" was written by another transaction after this one took its snapshot. Roll back and retry; run ledger writes at READ COMMITTED.',
+                        $posting->sequence,
+                        $posting->account,
+                    ), 0, $e);
+                }
+                throw $e;
+            }
         }
 
         return new Transaction($id, $draft->key, $draft->hash, $draft->type, $draft->postings, $draft->meta, $draft->createdAt, $draft->reverses);

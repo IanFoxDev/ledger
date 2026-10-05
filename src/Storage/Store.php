@@ -39,7 +39,8 @@ interface Store
     public function lock(array $codes): array;
 
     /**
-     * Heads of the accounts whose code starts with $prefix, without a lock.
+     * Heads of the accounts whose code starts with $prefix, without a lock, ordered by
+     * code byte by byte.
      *
      * @return list<Head>
      */
@@ -58,6 +59,11 @@ interface Store
     public function transactionByKey(string $key, bool $locking = false): ?Transaction;
 
     public function transaction(int $id): ?Transaction;
+
+    /**
+     * The transaction that wrote the first posting of an account.
+     */
+    public function firstTransaction(string $account): ?Transaction;
 
     /**
      * The transaction that reverses $id, if any. Called after lock(); $locking as in

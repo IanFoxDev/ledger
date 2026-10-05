@@ -176,6 +176,29 @@ final class PdoStoreTest extends TestCase
         self::assertSame('400', (string) $ledger->held('user:42'));
     }
 
+    /**
+     * The first attempt used most of the credits. A retry from an old snapshot misses the
+     * key and plans against what is left; it must return the first result.
+     */
+    #[DataProvider('databases')]
+    public function testCreditRetryFromAnOldSnapshot(string $env): void
+    {
+        $pdo = Databases::fresh($env);
+        $ledger = $this->ledger($pdo);
+        $other = new Ledger(new PdoStore(Databases::connect($env)), new FixedClock());
+        $ledger->open(Account::liability('customer:7:credits', 'USD'));
+        $ledger->credits()->grant('order:1', 'customer:7:credits', 20_00, from: 'world', revenue: 'revenue', breakage: 'revenue');
+
+        $pdo->beginTransaction();
+        $this->rowsIn($pdo, 'ledger_transactions');
+        $first = $other->credits()->consume('job:1', 'customer:7:credits', 15_00);
+        $retry = $ledger->credits()->consume('job:1', 'customer:7:credits', 15_00);
+        $pdo->commit();
+
+        self::assertSame($first->id, $retry->id);
+        self::assertSame('500', (string) $ledger->credits()->available('customer:7:credits'));
+    }
+
     #[DataProvider('databases')]
     public function testTheChainCannotFork(string $env): void
     {

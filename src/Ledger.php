@@ -20,6 +20,8 @@ final class Ledger
 {
     private readonly Clock $clock;
 
+    private ?Credits $credits = null;
+
     public function __construct(
         private readonly Store $store,
         ?Clock $clock = null,
@@ -176,6 +178,11 @@ final class Ledger
         return $this->transfer($key, $hold->holdAccount, $hold->account, $amount, ['hold' => $hold->id] + $meta, 'hold.release');
     }
 
+    public function credits(): Credits
+    {
+        return $this->credits ??= new Credits($this, $this->store, $this->clock);
+    }
+
     public function balance(string $account): Amount
     {
         $head = $this->store->head($account) ?? throw new UnknownAccount(\sprintf('Account "%s" is not open.', $account));
@@ -206,6 +213,9 @@ final class Ledger
         }
         if (str_starts_with($original->type, 'hold')) {
             throw new NotReversible(\sprintf('Transaction %d is a %s; release or capture the hold instead.', $original->id, $original->type));
+        }
+        if (str_starts_with($original->type, 'credit.')) {
+            throw new NotReversible(\sprintf('Transaction %d is a %s; credits are not reversed in this version.', $original->id, $original->type));
         }
         if ($original->reverses !== null) {
             throw new NotReversible(\sprintf('Transaction %d is a reversal of %d; post the original again instead.', $original->id, $original->reverses));

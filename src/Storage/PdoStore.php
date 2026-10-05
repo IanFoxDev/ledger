@@ -91,7 +91,8 @@ final readonly class PdoStore implements Store
 
     public function headsWithPrefix(string $prefix): array
     {
-        $statement = $this->pdo->prepare("SELECT code, type, currency, allow_negative FROM ledger_accounts WHERE code LIKE ? ESCAPE '!' ORDER BY code");
+        $order = $this->mysql ? 'code' : 'code COLLATE "C"';
+        $statement = $this->pdo->prepare("SELECT code, type, currency, allow_negative FROM ledger_accounts WHERE code LIKE ? ESCAPE '!' ORDER BY $order");
         $statement->execute([strtr($prefix, ['!' => '!!', '%' => '!%', '_' => '!_']) . '%']);
 
         return array_map(fn(array $row): Head => $this->headOf($this->accountFrom($row), false), $this->rows($statement));
@@ -115,6 +116,13 @@ final readonly class PdoStore implements Store
     public function transaction(int $id): ?Transaction
     {
         $row = $this->row('SELECT id, idempotency_key, hash, type, meta, reverses, created_at FROM ledger_transactions WHERE id = ?', [$id]);
+
+        return $row === null ? null : $this->transactionFrom($row);
+    }
+
+    public function firstTransaction(string $account): ?Transaction
+    {
+        $row = $this->row('SELECT t.id, t.idempotency_key, t.hash, t.type, t.meta, t.reverses, t.created_at FROM ledger_postings p JOIN ledger_transactions t ON t.id = p.transaction_id WHERE p.account = ? AND p.sequence = 1', [$account]);
 
         return $row === null ? null : $this->transactionFrom($row);
     }

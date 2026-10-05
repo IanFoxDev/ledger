@@ -76,9 +76,11 @@ final class InMemoryStore implements Store
     public function headsWithPrefix(string $prefix): array
     {
         $heads = [];
-        foreach (array_keys($this->accounts) as $code) {
-            if (str_starts_with((string) $code, $prefix)) {
-                $heads[] = $this->head((string) $code) ?? throw new \LogicException('unreachable');
+        $codes = array_map('strval', array_keys($this->accounts));
+        sort($codes, \SORT_STRING);
+        foreach ($codes as $code) {
+            if (str_starts_with($code, $prefix)) {
+                $heads[] = $this->head($code) ?? throw new \LogicException('unreachable');
             }
         }
 
@@ -105,6 +107,19 @@ final class InMemoryStore implements Store
     public function transaction(int $id): ?Transaction
     {
         return $this->transactions[$id] ?? null;
+    }
+
+    public function firstTransaction(string $account): ?Transaction
+    {
+        foreach ($this->transactions as $transaction) {
+            foreach ($transaction->postings as $posting) {
+                if ($posting->account === $account && $posting->sequence === 1) {
+                    return $transaction;
+                }
+            }
+        }
+
+        return null;
     }
 
     public function reversalOf(int $id, bool $locking = false): ?Transaction

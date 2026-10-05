@@ -20,6 +20,11 @@ final class Databases
         }
         $pdo = new \PDO($dsn);
         $pdo->setAttribute(\PDO::ATTR_ERRMODE, \PDO::ERRMODE_EXCEPTION);
+        // A test that fails inside a transaction can leave its connection open (the
+        // exception's trace holds it); fail on the next lock instead of waiting forever.
+        $pdo->exec($pdo->getAttribute(\PDO::ATTR_DRIVER_NAME) === 'mysql'
+            ? 'SET SESSION lock_wait_timeout = 10, SESSION innodb_lock_wait_timeout = 10'
+            : "SET lock_timeout = '10s'");
 
         return $pdo;
     }

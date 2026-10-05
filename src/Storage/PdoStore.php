@@ -15,6 +15,11 @@ use IanFoxDev\Ledger\Transaction;
  * Keeps the ledger in PostgreSQL or MySQL, in the tables from schema/postgresql.sql or
  * schema/mysql.sql. Give it the connection your application uses, so the ledger writes in
  * your transaction.
+ *
+ * A transaction the ledger opens itself runs at READ COMMITTED. When it joins yours, yours
+ * decides: READ COMMITTED is what it is tested with. Under MySQL's default REPEATABLE READ
+ * the writes stay correct, but two of them on accounts without postings can deadlock
+ * (error 1213) and must be retried.
  */
 final readonly class PdoStore implements Store
 {
@@ -35,8 +40,18 @@ final readonly class PdoStore implements Store
         if ($this->pdo->inTransaction()) {
             return $fn();
         }
+        // READ COMMITTED: every statement sees the latest commit, and InnoDB takes no gap
+        // locks, which under REPEATABLE READ deadlock two writers on accounts without
+        // postings. In MySQL the level is set for the next transaction, in PostgreSQL as
+        // the first statement of this one.
+        if ($this->mysql) {
+            $this->pdo->exec('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        }
         $this->pdo->beginTransaction();
         try {
+            if (!$this->mysql) {
+                $this->pdo->exec('SET TRANSACTION ISOLATION LEVEL READ COMMITTED');
+            }
             $result = $fn();
         } catch (\Throwable $e) {
             $this->pdo->rollBack();

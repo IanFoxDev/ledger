@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace IanFoxDev\Ledger\Tests\Storage;
 
 use IanFoxDev\Ledger\Account;
+use IanFoxDev\Ledger\Exception\AlreadyReversed;
 use IanFoxDev\Ledger\Exception\IdempotencyConflict;
 use IanFoxDev\Ledger\Ledger;
 use IanFoxDev\Ledger\Leg;
@@ -99,6 +100,53 @@ final class PdoStoreTest extends TestCase
         } finally {
             $pdo->rollBack();
         }
+    }
+
+    /**
+     * The first attempt spent the whole balance. A retry from an old snapshot misses the
+     * key, sees a balance of zero and would report InsufficientFunds; it must return the
+     * stored transaction instead.
+     */
+    #[DataProvider('databases')]
+    public function testRetryOfAPaymentThatEmptiedTheAccount(string $env): void
+    {
+        $pdo = Databases::fresh($env);
+        $ledger = $this->ledger($pdo);
+        $other = new Ledger(new PdoStore(Databases::connect($env)), new FixedClock());
+
+        $pdo->beginTransaction();
+        $this->rowsIn($pdo, 'ledger_transactions');
+        $first = $other->transfer('pay:all', 'user:42', 'revenue', 10_00);
+        $retry = $ledger->transfer('pay:all', 'user:42', 'revenue', 10_00);
+        $pdo->commit();
+
+        self::assertSame($first->id, $retry->id);
+        self::assertTrue($ledger->balance('user:42')->isZero());
+    }
+
+    /**
+     * Two reversals of the same transaction under different keys. From an old snapshot the
+     * second does not see the first, and the unique index on reverses refuses it.
+     */
+    #[DataProvider('databases')]
+    public function testSecondReversalFromAnOldSnapshotIsRefused(string $env): void
+    {
+        $pdo = Databases::fresh($env);
+        $ledger = $this->ledger($pdo);
+        $other = new Ledger(new PdoStore(Databases::connect($env)), new FixedClock());
+        $payment = $ledger->transfer('pay:1', 'user:42', 'revenue', 2_00);
+
+        $pdo->beginTransaction();
+        $this->rowsIn($pdo, 'ledger_transactions');
+        $other->reverse('refund:1', $payment->id);
+        try {
+            $ledger->reverse('refund:1:again', $payment->id);
+            self::fail('expected AlreadyReversed');
+        } catch (AlreadyReversed) {
+        } finally {
+            $pdo->rollBack();
+        }
+        self::assertSame('1000', (string) $ledger->balance('user:42'));
     }
 
     #[DataProvider('databases')]

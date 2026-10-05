@@ -111,6 +111,14 @@ final readonly class PdoStore implements Store
         return $row === null ? null : $this->transactionFrom($row);
     }
 
+    public function reversalOf(int $id, bool $locking = false): ?Transaction
+    {
+        $suffix = $locking && $this->mysql ? ' FOR SHARE' : '';
+        $row = $this->row('SELECT id, idempotency_key, hash, type, meta, reverses, created_at FROM ledger_transactions WHERE reverses = ?' . $suffix, [$id]);
+
+        return $row === null ? null : $this->transactionFrom($row);
+    }
+
     public function append(Draft $draft): Transaction
     {
         $meta = json_encode($draft->meta === [] ? new \stdClass() : self::sorted($draft->meta), \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR);
@@ -122,16 +130,23 @@ final readonly class PdoStore implements Store
                 if (($e->errorInfo[1] ?? null) === 1062 && str_contains($e->getMessage(), 'ledger_transactions_key')) {
                     throw new DuplicateKey($draft->key, 0, $e);
                 }
+                if (($e->errorInfo[1] ?? null) === 1062 && str_contains($e->getMessage(), 'ledger_transactions_reverses')) {
+                    throw new DuplicateReversal((string) $draft->reverses, 0, $e);
+                }
                 throw $e;
             }
             $id = (int) $this->pdo->lastInsertId();
         } else {
-            // ON CONFLICT keeps the transaction usable, so the ledger can read the row that won.
-            $statement = $this->pdo->prepare('INSERT INTO ledger_transactions (idempotency_key, hash, type, meta, reverses, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT (idempotency_key) DO NOTHING RETURNING id');
+            // ON CONFLICT keeps the transaction usable, so the ledger can read the row that
+            // won; without a target it covers both the key and the reverses index.
+            $statement = $this->pdo->prepare('INSERT INTO ledger_transactions (idempotency_key, hash, type, meta, reverses, created_at) VALUES (?, ?, ?, ?, ?, ?) ON CONFLICT DO NOTHING RETURNING id');
             $statement->execute($values);
             $id = $statement->fetchColumn();
             if ($id === false) {
-                throw new DuplicateKey($draft->key);
+                if ($this->transactionByKey($draft->key) !== null) {
+                    throw new DuplicateKey($draft->key);
+                }
+                throw new DuplicateReversal((string) $draft->reverses);
             }
             $id = self::int($id);
         }

@@ -7,8 +7,10 @@ namespace IanFoxDev\Ledger\Tests;
 use IanFoxDev\Ledger\Account;
 use IanFoxDev\Ledger\Amount;
 use IanFoxDev\Ledger\Exception\AccountConflict;
+use IanFoxDev\Ledger\Exception\AlreadyReversed;
 use IanFoxDev\Ledger\Exception\IdempotencyConflict;
 use IanFoxDev\Ledger\Exception\InsufficientFunds;
+use IanFoxDev\Ledger\Exception\NotReversible;
 use IanFoxDev\Ledger\Exception\UnbalancedTransaction;
 use IanFoxDev\Ledger\Exception\UnknownAccount;
 use IanFoxDev\Ledger\Ledger;
@@ -203,6 +205,72 @@ class LedgerTest extends TestCase
     {
         $this->expectException(\InvalidArgumentException::class);
         Leg::debit('psp:stripe', 0);
+    }
+
+    final public function testReversalSwapsEverySideAndLinksTheOriginal(): void
+    {
+        $deposit = $this->deposit('dep:1', 'user:42', 10_00);
+
+        $reversal = $this->ledger->reverse('dep:1:reverse', $deposit->id, ['reason' => 'chargeback']);
+
+        self::assertSame($deposit->id, $reversal->reverses);
+        self::assertSame('reversal', $reversal->type);
+        self::assertSame(['reason' => 'chargeback'], $reversal->meta);
+        self::assertTrue($this->ledger->balance('user:42')->isZero());
+        self::assertTrue($this->ledger->balance('psp:stripe')->isZero());
+        self::assertSame($reversal->id, $this->ledger->reversalOf($deposit->id)?->id);
+        self::assertNull($this->ledger->reversalOf($reversal->id));
+        $sides = array_map(static fn($p): string => $p->account . ' ' . $p->side->value, $reversal->postings);
+        sort($sides);
+        self::assertSame(['psp:stripe C', 'user:42 D'], $sides);
+    }
+
+    final public function testATransactionIsReversedOnce(): void
+    {
+        $deposit = $this->deposit('dep:1', 'user:42', 10_00);
+        $first = $this->ledger->reverse('rev:1', $deposit->id);
+
+        self::assertSame($first->id, $this->ledger->reverse('rev:1', $deposit->id)->id);
+
+        $this->expectException(AlreadyReversed::class);
+        $this->expectExceptionMessage(\sprintf('Transaction %d was already reversed by %d (key "rev:1").', $deposit->id, $first->id));
+        $this->ledger->reverse('rev:2', $deposit->id);
+    }
+
+    final public function testAReversalIsNotReversed(): void
+    {
+        $deposit = $this->deposit('dep:1', 'user:42', 10_00);
+        $reversal = $this->ledger->reverse('rev:1', $deposit->id);
+
+        $this->expectException(NotReversible::class);
+        $this->expectExceptionMessage('post the original again instead');
+        $this->ledger->reverse('rev:rev:1', $reversal->id);
+    }
+
+    final public function testReversingAnUnknownTransaction(): void
+    {
+        $this->expectException(NotReversible::class);
+        $this->ledger->reverse('rev:404', 404);
+    }
+
+    final public function testMoneyAlreadySpentCannotBeReversed(): void
+    {
+        $deposit = $this->deposit('dep:1', 'user:42', 10_00);
+        $this->ledger->transfer('buy:1', 'user:42', 'revenue:fees', 6_00);
+
+        try {
+            $this->ledger->reverse('rev:1', $deposit->id);
+            self::fail('expected InsufficientFunds');
+        } catch (InsufficientFunds $e) {
+            self::assertSame('Account "user:42" has 400 and cannot go to -600.', $e->getMessage());
+        }
+        self::assertNull($this->ledger->reversalOf($deposit->id));
+
+        // Refund the purchase first, then the deposit can go.
+        $this->ledger->reverse('rev:buy:1', 2);
+        $this->ledger->reverse('rev:1', $deposit->id);
+        self::assertTrue($this->ledger->balance('user:42')->isZero());
+        self::assertTrue($this->ledger->balance('revenue:fees')->isZero());
     }
 
     final protected function deposit(string $key, string $user, int $cents): Transaction

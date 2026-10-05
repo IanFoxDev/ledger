@@ -53,7 +53,14 @@ interface Store
     public function transaction(int $id): ?Transaction;
 
     /**
+     * The transaction that reverses $id, if any. Called after lock(); $locking as in
+     * transactionByKey().
+     */
+    public function reversalOf(int $id, bool $locking = false): ?Transaction;
+
+    /**
      * @throws DuplicateKey when the idempotency key is already taken
+     * @throws DuplicateReversal when the reversed transaction already has a reversal
      */
     public function append(Draft $draft): Transaction;
 }

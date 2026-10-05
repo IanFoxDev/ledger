@@ -95,10 +95,24 @@ final class InMemoryStore implements Store
         return $this->transactions[$id] ?? null;
     }
 
+    public function reversalOf(int $id, bool $locking = false): ?Transaction
+    {
+        foreach ($this->transactions as $transaction) {
+            if ($transaction->reverses === $id) {
+                return $transaction;
+            }
+        }
+
+        return null;
+    }
+
     public function append(Draft $draft): Transaction
     {
         if (isset($this->keys[$draft->key])) {
             throw new DuplicateKey($draft->key);
+        }
+        if ($draft->reverses !== null && $this->reversalOf($draft->reverses) !== null) {
+            throw new DuplicateReversal((string) $draft->reverses);
         }
         $id = \count($this->transactions) + 1;
         $transaction = new Transaction(

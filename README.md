@@ -6,6 +6,9 @@ recalculates everything from the postings.
 
 > Status: in development, nothing released yet.
 
+Why balances are derived and how concurrent writes are handled:
+[docs/adr/0001-balances-are-derived-and-nothing-is-edited.md](docs/adr/0001-balances-are-derived-and-nothing-is-edited.md).
+
 ## License
 
 [MIT](LICENSE)

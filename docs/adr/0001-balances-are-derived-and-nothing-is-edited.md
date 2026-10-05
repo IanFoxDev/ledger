@@ -44,6 +44,13 @@ That fails in ways that are found late.
 - **Every transaction has an idempotency key.** Posting the same key with the same content
   returns the stored transaction; with different content it throws, naming both hashes. A
   retried request does not move money twice.
+- **Writes run at READ COMMITTED.** Every statement then sees the latest commit, and
+  InnoDB takes no gap locks. Under MySQL's REPEATABLE READ, reading the end of an empty
+  chain with a lock takes a gap lock, and two writers inserting into that gap deadlock; a
+  benchmark with a thousand new accounts hit it on the first write of every process. A
+  transaction the ledger opens itself sets the level. When the ledger joins the caller's
+  transaction, the caller's level applies, and a stale snapshot makes a write fail on the
+  posting's primary key (`ConcurrentWrite`) rather than write a wrong balance.
 - **The ledger runs in the application's transaction.** It takes the application's PDO
   connection. If a transaction is already open, the ledger joins it, so the business row
   and the postings commit or roll back together; otherwise it opens and commits its own.

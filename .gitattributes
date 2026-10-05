@@ -12,3 +12,4 @@
 /Makefile export-ignore
 /phpstan.neon export-ignore
 /phpunit.xml.dist export-ignore
+/bench export-ignore

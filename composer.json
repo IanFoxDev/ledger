@@ -1,0 +1,53 @@
+{
+    "name": "ianfoxdev/ledger",
+    "description": "Double-entry ledger for PHP that runs inside your database transaction: balances derived from postings, idempotent transactions, holds and expiring credits.",
+    "type": "library",
+    "license": "MIT",
+    "keywords": [
+        "ledger",
+        "double-entry",
+        "accounting",
+        "wallet",
+        "credits",
+        "money",
+        "fintech",
+        "billing"
+    ],
+    "homepage": "https://github.com/IanFoxDev/ledger",
+    "authors": [
+        {
+            "name": "Anatoly Pankratyev",
+            "email": "ianfoxdeveloper@gmail.com"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/IanFoxDev/ledger/issues",
+        "source": "https://github.com/IanFoxDev/ledger"
+    },
+    "require": {
+        "php": "^8.3",
+        "brick/math": "^0.12 || ^0.13 || ^0.14 || ^0.15 || ^0.16 || ^0.17 || ^0.18 || ^0.19 || ^0.20 || ^1.0"
+    },
+    "require-dev": {
+        "friendsofphp/php-cs-fixer": "^3.64",
+        "phpstan/phpstan": "^2.1",
+        "phpunit/phpunit": "^12.5 || ^13.0"
+    },
+    "suggest": {
+        "ext-pdo_pgsql": "To keep the ledger in PostgreSQL",
+        "ext-pdo_mysql": "To keep the ledger in MySQL"
+    },
+    "autoload": {
+        "psr-4": {
+            "IanFoxDev\\Ledger\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "IanFoxDev\\Ledger\\Tests\\": "tests/"
+        }
+    },
+    "config": {
+        "sort-packages": true
+    }
+}

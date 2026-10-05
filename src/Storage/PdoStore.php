@@ -89,6 +89,14 @@ final readonly class PdoStore implements Store
         return $heads;
     }
 
+    public function headsWithPrefix(string $prefix): array
+    {
+        $statement = $this->pdo->prepare("SELECT code, type, currency, allow_negative FROM ledger_accounts WHERE code LIKE ? ESCAPE '!' ORDER BY code");
+        $statement->execute([strtr($prefix, ['!' => '!!', '%' => '!%', '_' => '!_']) . '%']);
+
+        return array_map(fn(array $row): Head => $this->headOf($this->accountFrom($row), false), $this->rows($statement));
+    }
+
     public function head(string $code): ?Head
     {
         $account = $this->account($code);

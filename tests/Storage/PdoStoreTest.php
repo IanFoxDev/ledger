@@ -7,6 +7,7 @@ namespace IanFoxDev\Ledger\Tests\Storage;
 use IanFoxDev\Ledger\Account;
 use IanFoxDev\Ledger\Exception\AlreadyReversed;
 use IanFoxDev\Ledger\Exception\IdempotencyConflict;
+use IanFoxDev\Ledger\Exception\InsufficientFunds;
 use IanFoxDev\Ledger\Ledger;
 use IanFoxDev\Ledger\Leg;
 use IanFoxDev\Ledger\Storage\PdoStore;
@@ -147,6 +148,32 @@ final class PdoStoreTest extends TestCase
             $pdo->rollBack();
         }
         self::assertSame('1000', (string) $ledger->balance('user:42'));
+    }
+
+    /**
+     * What remains on a hold is a balance read under the lock, so an old snapshot cannot
+     * make a second capture take the money of another hold on the same account.
+     */
+    #[DataProvider('databases')]
+    public function testCaptureFromAnOldSnapshotSeesWhatRemains(string $env): void
+    {
+        $pdo = Databases::fresh($env);
+        $ledger = $this->ledger($pdo);
+        $other = new Ledger(new PdoStore(Databases::connect($env)), new FixedClock());
+        $first = $ledger->hold('bet:1', 'user:42', 4_00);
+        $ledger->hold('bet:2', 'user:42', 4_00);
+
+        $pdo->beginTransaction();
+        $this->rowsIn($pdo, 'ledger_postings');
+        $other->capture('bet:1:lost', $first, 'revenue', 4_00);
+        try {
+            $ledger->capture('bet:1:lost:again', $first, 'revenue', 4_00);
+            self::fail('expected InsufficientFunds');
+        } catch (InsufficientFunds) {
+        } finally {
+            $pdo->rollBack();
+        }
+        self::assertSame('400', (string) $ledger->held('user:42'));
     }
 
     #[DataProvider('databases')]

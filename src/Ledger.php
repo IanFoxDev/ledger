@@ -95,6 +95,87 @@ final class Ledger
         return $this->post($key, [new Leg($from, $side->opposite(), $amount), new Leg($to, $side, $amount)], $meta, $type);
     }
 
+    /**
+     * Sets an amount aside: it leaves the account's balance and waits on an account of
+     * its own until it is captured or released. Card authorizations, bets in play, an AI
+     * job priced before it runs.
+     *
+     * @param array<mixed> $meta string keys to strings, integers, booleans or null
+     */
+    public function hold(string $key, string $account, int|string|Amount $amount, array $meta = []): Hold
+    {
+        $base = $this->store->account($account) ?? throw new UnknownAccount(\sprintf('Account "%s" is not open.', $account));
+        $holdAccount = self::holdAccountOf($account, $key);
+        $transaction = $this->store->transactional(function () use ($key, $base, $holdAccount, $amount, $meta): Transaction {
+            $this->open(new Account($holdAccount, $base->type, $base->currency));
+
+            return $this->transfer($key, $base->code, $holdAccount, $amount, $meta, 'hold');
+        });
+
+        return $this->holdFrom($transaction) ?? throw new IdempotencyConflict(\sprintf('Key "%s" was already used for a transaction that is not a hold.', $key));
+    }
+
+    public function findHold(int $id): ?Hold
+    {
+        $transaction = $this->store->transaction($id);
+
+        return $transaction === null ? null : $this->holdFrom($transaction);
+    }
+
+    /**
+     * What is still held: the amount minus what was captured and released.
+     */
+    public function remaining(Hold $hold): Amount
+    {
+        return $this->balance($hold->holdAccount);
+    }
+
+    /**
+     * The total held on an account across its open holds.
+     */
+    public function held(string $account): Amount
+    {
+        $total = Amount::zero();
+        foreach ($this->store->headsWithPrefix($account . '@hold:') as $head) {
+            $total = $total->plus($head->balance);
+        }
+
+        return $total;
+    }
+
+    /**
+     * Moves part or all of what is held to $to, an account with the same normal side:
+     * revenue for a sale, the house for a lost bet. A hold can be captured several times
+     * while something remains. Capturing more than remains throws InsufficientFunds.
+     *
+     * @param array<mixed> $meta string keys to strings, integers, booleans or null
+     */
+    public function capture(string $key, Hold $hold, string $to, int|string|Amount $amount, array $meta = []): Transaction
+    {
+        return $this->transfer($key, $hold->holdAccount, $to, $amount, ['hold' => $hold->id] + $meta, 'hold.capture');
+    }
+
+    /**
+     * Returns what is held to the account it came from: all that remains, or $amount.
+     *
+     * @param array<mixed> $meta string keys to strings, integers, booleans or null
+     */
+    public function release(string $key, Hold $hold, int|string|Amount|null $amount = null, array $meta = []): Transaction
+    {
+        if ($amount === null) {
+            $done = $this->store->transactionByKey($key);
+            if ($done !== null && $done->type === 'hold.release' && ($done->meta['hold'] ?? null) === $hold->id) {
+                return $done;
+            }
+            $amount = $this->remaining($hold);
+            if ($amount->isZero()) {
+                throw new InsufficientFunds(\sprintf('Hold %d has nothing left to release.', $hold->id));
+            }
+        }
+
+        return $this->transfer($key, $hold->holdAccount, $hold->account, $amount, ['hold' => $hold->id] + $meta, 'hold.release');
+    }
+
     public function balance(string $account): Amount
     {
         $head = $this->store->head($account) ?? throw new UnknownAccount(\sprintf('Account "%s" is not open.', $account));
@@ -122,6 +203,9 @@ final class Ledger
         $original = $this->store->transaction($transactionId);
         if ($original === null) {
             throw new NotReversible(\sprintf('Transaction %d does not exist.', $transactionId));
+        }
+        if (str_starts_with($original->type, 'hold')) {
+            throw new NotReversible(\sprintf('Transaction %d is a %s; release or capture the hold instead.', $original->id, $original->type));
         }
         if ($original->reverses !== null) {
             throw new NotReversible(\sprintf('Transaction %d is a reversal of %d; post the original again instead.', $original->id, $original->reverses));
@@ -288,6 +372,31 @@ final class Ledger
         usort($keyed, static fn(array $a, array $b): int => $a['rank'] <=> $b['rank']);
 
         return array_map(static fn(array $k): Leg => $k['leg'], $keyed);
+    }
+
+    private function holdFrom(Transaction $transaction): ?Hold
+    {
+        if ($transaction->type !== 'hold' || \count($transaction->postings) !== 2) {
+            return null;
+        }
+        [$a, $b] = $transaction->postings;
+        [$from, $to] = str_contains($a->account, '@hold:') ? [$b, $a] : [$a, $b];
+
+        return new Hold($transaction->id, $transaction->key, $from->account, $to->account, $to->amount);
+    }
+
+    /**
+     * One account per hold, named after the account and the hold's key, so a retry of the
+     * hold finds the same account and what remains is a balance read under a lock.
+     */
+    private static function holdAccountOf(string $account, string $key): string
+    {
+        $code = $account . '@hold:' . substr(hash('sha256', $key), 0, 24);
+        if (\strlen($code) > 190) {
+            throw new \InvalidArgumentException(\sprintf('Account "%s" is too long to hold on: a hold adds 30 characters to the code, up to 190.', $account));
+        }
+
+        return $code;
     }
 
     /**

@@ -39,6 +39,13 @@ interface Store
     public function lock(array $codes): array;
 
     /**
+     * Heads of the accounts whose code starts with $prefix, without a lock.
+     *
+     * @return list<Head>
+     */
+    public function headsWithPrefix(string $prefix): array;
+
+    /**
      * The head of an account's chain without a lock, or null if the account does not exist.
      */
     public function head(string $code): ?Head;

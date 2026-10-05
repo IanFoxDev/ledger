@@ -273,6 +273,94 @@ class LedgerTest extends TestCase
         self::assertTrue($this->ledger->balance('revenue:fees')->isZero());
     }
 
+    final public function testHoldCaptureAndRelease(): void
+    {
+        $this->deposit('dep:1', 'user:42', 100_00);
+
+        $hold = $this->ledger->hold('job:1:hold', 'user:42', 30_00, ['job' => 'job:1']);
+        self::assertSame('7000', (string) $this->ledger->balance('user:42'));
+        self::assertSame('3000', (string) $this->ledger->held('user:42'));
+        self::assertSame('3000', (string) $this->ledger->remaining($hold));
+        self::assertSame('user:42', $hold->account);
+        self::assertStringStartsWith('user:42@hold:', $hold->holdAccount);
+
+        $this->ledger->capture('job:1:capture', $hold, 'revenue:fees', 18_40);
+        self::assertSame('1160', (string) $this->ledger->remaining($hold));
+        self::assertSame('1840', (string) $this->ledger->balance('revenue:fees'));
+
+        $release = $this->ledger->release('job:1:release', $hold);
+        self::assertSame('hold.release', $release->type);
+        self::assertSame($hold->id, $release->meta['hold']);
+        self::assertTrue($this->ledger->remaining($hold)->isZero());
+        self::assertTrue($this->ledger->held('user:42')->isZero());
+        self::assertSame('8160', (string) $this->ledger->balance('user:42'));
+
+        // Retries return what was done the first time.
+        self::assertSame($hold->id, $this->ledger->hold('job:1:hold', 'user:42', 30_00, ['job' => 'job:1'])->id);
+        self::assertSame($release->id, $this->ledger->release('job:1:release', $hold)->id);
+        self::assertEquals($hold, $this->ledger->findHold($hold->id));
+        self::assertNull($this->ledger->findHold($release->id));
+    }
+
+    final public function testACaptureCannotTakeMoneyOfAnotherHold(): void
+    {
+        $this->deposit('dep:1', 'user:42', 100_00);
+        $first = $this->ledger->hold('bet:1', 'user:42', 10_00);
+        $this->ledger->hold('bet:2', 'user:42', 10_00);
+        $this->ledger->capture('bet:1:lost', $first, 'revenue:fees', 10_00);
+
+        try {
+            $this->ledger->capture('bet:1:lost:again', $first, 'revenue:fees', 10_00);
+            self::fail('expected InsufficientFunds');
+        } catch (InsufficientFunds) {
+        }
+        self::assertSame('1000', (string) $this->ledger->held('user:42'));
+        self::assertSame('1000', (string) $this->ledger->balance('revenue:fees'));
+    }
+
+    final public function testHoldingMoreThanTheBalanceLeavesNothingBehind(): void
+    {
+        $this->deposit('dep:1', 'user:42', 5_00);
+
+        try {
+            $this->ledger->hold('job:2:hold', 'user:42', 5_01);
+            self::fail('expected InsufficientFunds');
+        } catch (InsufficientFunds) {
+        }
+        self::assertTrue($this->ledger->held('user:42')->isZero());
+        self::assertSame('500', (string) $this->ledger->balance('user:42'));
+    }
+
+    final public function testHoldsAreSettledNotReversed(): void
+    {
+        $this->deposit('dep:1', 'user:42', 5_00);
+        $hold = $this->ledger->hold('job:3:hold', 'user:42', 1_00);
+        $this->ledger->release('job:3:release', $hold);
+
+        try {
+            $this->ledger->release('job:3:release:2', $hold);
+            self::fail('expected InsufficientFunds');
+        } catch (InsufficientFunds $e) {
+            self::assertSame(\sprintf('Hold %d has nothing left to release.', $hold->id), $e->getMessage());
+        }
+        $this->expectException(NotReversible::class);
+        $this->expectExceptionMessage('release or capture the hold instead');
+        $this->ledger->reverse('job:3:reverse', $hold->id);
+    }
+
+    final public function testHeldMatchesTheAccountCodeLiterally(): void
+    {
+        // In SQL LIKE, _ matches any character: user_1 must not pick up userX1's holds.
+        $this->ledger->open(Account::equity('world', 'USD', allowNegative: true));
+        $this->ledger->open(Account::liability('user_1', 'USD'));
+        $this->ledger->open(Account::liability('userX1', 'USD'));
+        $this->ledger->transfer('mint:1', 'world', 'userX1', 5_00);
+        $this->ledger->hold('h:1', 'userX1', 2_00);
+
+        self::assertTrue($this->ledger->held('user_1')->isZero());
+        self::assertSame('200', (string) $this->ledger->held('userX1'));
+    }
+
     final protected function deposit(string $key, string $user, int $cents): Transaction
     {
         return $this->ledger->post($key, [Leg::debit('psp:stripe', $cents), Leg::credit($user, $cents)], ['order' => 'A-1'], 'deposit');

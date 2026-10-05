@@ -73,6 +73,18 @@ final class InMemoryStore implements Store
         return $heads;
     }
 
+    public function headsWithPrefix(string $prefix): array
+    {
+        $heads = [];
+        foreach (array_keys($this->accounts) as $code) {
+            if (str_starts_with((string) $code, $prefix)) {
+                $heads[] = $this->head((string) $code) ?? throw new \LogicException('unreachable');
+            }
+        }
+
+        return $heads;
+    }
+
     public function head(string $code): ?Head
     {
         $account = $this->accounts[$code] ?? null;

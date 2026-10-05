@@ -1,0 +1,20 @@
+1. Wallet
+deposit via the payment provider              100.00
+job 7 priced at 3.00, held                    balance 97.00  held 3.00
+job 7 cost 2.37: captured, the rest released  balance 97.63  held 0.00
+the capture retried with the same key         balance 97.63  revenue 2.37
+a duplicate charge of 20.00, then refunded    balance 97.63  reversal of #5
+
+2. Credits
+bought 50.00 for 30 days, given 5.00 for 7    available 55.00
+job 8 used 7.40                               5.00 from the lot 20261008, 2.40 from the lot 20261031
+day 31: job 9 refused                         Account "customer:acme:credits" has 0 credits that have not expired; 100 requested.
+expired: lot of transaction #7                47.60 to breakage
+
+3. The books
+cash:psp                                        150.00
+customer:acme:wallet                             97.63
+revenue:jobs                                      9.77
+revenue:breakage                                 47.60
+expense:promotions                                5.00
+verify                                        9 accounts, 10 transactions, 21 postings: ok

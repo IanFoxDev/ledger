@@ -1,0 +1,72 @@
+#!/usr/bin/env php
+<?php
+
+declare(strict_types=1);
+
+use IanFoxDev\Ledger\Ledger;
+use IanFoxDev\Ledger\Storage\PdoStore;
+
+foreach ([__DIR__ . '/../vendor/autoload.php', __DIR__ . '/../../../autoload.php'] as $autoload) {
+    if (is_file($autoload)) {
+        require $autoload;
+        break;
+    }
+}
+
+$usage = <<<'TXT'
+    Usage: ledger verify [--dsn=DSN] [--user=USER] [--json]
+
+    Recalculates every balance from the postings and checks every transaction against
+    what was written. The DSN can also come from LEDGER_DSN, the user from LEDGER_USER and
+    the password from LEDGER_PASSWORD.
+
+    Exit codes: 0 nothing wrong, 1 violations found, 2 usage or connection error.
+
+    TXT;
+
+$options = [];
+$commands = [];
+foreach (array_slice($argv, 1) as $arg) {
+    if (preg_match('/^--(dsn|user)=(.*)$/s', $arg, $m) === 1) {
+        $options[$m[1]] = $m[2];
+    } elseif ($arg === '--json' || $arg === '--help') {
+        $options[substr($arg, 2)] = true;
+    } else {
+        $commands[] = $arg;
+    }
+}
+if (isset($options['help']) || $commands !== ['verify']) {
+    fwrite(isset($options['help']) ? STDOUT : STDERR, $usage);
+    exit(isset($options['help']) ? 0 : 2);
+}
+$option = static fn(string $name, string $env): ?string => is_string($options[$name] ?? null) ? $options[$name] : (getenv($env) ?: null);
+$dsn = $option('dsn', 'LEDGER_DSN');
+if ($dsn === null) {
+    fwrite(STDERR, "No DSN: pass --dsn or set LEDGER_DSN.\n\n" . $usage);
+    exit(2);
+}
+
+try {
+    $pdo = new PDO($dsn, $option('user', 'LEDGER_USER'), getenv('LEDGER_PASSWORD') ?: null);
+    $result = (new Ledger(new PdoStore($pdo)))->verify();
+} catch (Throwable $e) {
+    fwrite(STDERR, 'ledger: ' . $e->getMessage() . "\n");
+    exit(2);
+}
+
+if (isset($options['json'])) {
+    echo json_encode([
+        'ok' => $result->ok(),
+        'accounts' => $result->accounts,
+        'transactions' => $result->transactions,
+        'postings' => $result->postings,
+        'violations' => $result->violations,
+    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+} else {
+    printf("%d accounts, %d transactions, %d postings\n", $result->accounts, $result->transactions, $result->postings);
+    foreach ($result->violations as $violation) {
+        printf("%-18s %s\n", $violation->kind, $violation->message);
+    }
+    echo $result->ok() ? "ok\n" : sprintf("%d violation%s\n", count($result->violations), count($result->violations) === 1 ? '' : 's');
+}
+exit($result->ok() ? 0 : 1);

@@ -37,6 +37,9 @@
         "ext-pdo_pgsql": "To keep the ledger in PostgreSQL",
         "ext-pdo_mysql": "To keep the ledger in MySQL"
     },
+    "bin": [
+        "bin/ledger"
+    ],
     "autoload": {
         "psr-4": {
             "IanFoxDev\\Ledger\\": "src/"

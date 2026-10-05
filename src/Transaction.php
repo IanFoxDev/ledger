@@ -11,7 +11,7 @@ final readonly class Transaction
 {
     /**
      * @param list<Posting> $postings
-     * @param array<string, scalar|null> $meta
+     * @param array<string, string|int|bool|null> $meta
      */
     public function __construct(
         public int $id,

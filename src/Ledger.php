@@ -178,6 +178,15 @@ final class Ledger
         return $this->transfer($key, $hold->holdAccount, $hold->account, $amount, ['hold' => $hold->id] + $meta, 'hold.release');
     }
 
+    /**
+     * Recalculates every balance and checks every transaction against what was written.
+     * Reads the whole ledger: run it from a job, not a request.
+     */
+    public function verify(): Verification
+    {
+        return (new Verifier($this->store))->run();
+    }
+
     public function credits(): Credits
     {
         return $this->credits ??= new Credits($this, $this->store, $this->clock);

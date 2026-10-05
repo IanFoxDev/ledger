@@ -361,6 +361,26 @@ class LedgerTest extends TestCase
         self::assertSame('200', (string) $this->ledger->held('userX1'));
     }
 
+    final public function testAMixedHistoryVerifiesClean(): void
+    {
+        $deposit = $this->deposit('dep:1', 'user:42', 100_00);
+        $this->ledger->transfer('p2p:1', 'user:42', 'user:7', 10_00);
+        $hold = $this->ledger->hold('job:1', 'user:42', 20_00);
+        $this->ledger->capture('job:1:capture', $hold, 'revenue:fees', 5_00);
+        $this->ledger->release('job:1:release', $hold);
+        $refund = $this->ledger->transfer('p2p:2', 'user:7', 'user:42', 1_00);
+        $this->ledger->reverse('p2p:2:reverse', $refund->id);
+
+        $result = $this->ledger->verify();
+
+        self::assertSame([], $result->violations);
+        self::assertTrue($result->ok());
+        self::assertSame(7, $result->transactions);
+        self::assertSame(5, $result->accounts);
+        self::assertSame(14, $result->postings);
+        self::assertSame(1, $deposit->id);
+    }
+
     final protected function deposit(string $key, string $user, int $cents): Transaction
     {
         return $this->ledger->post($key, [Leg::debit('psp:stripe', $cents), Leg::credit($user, $cents)], ['order' => 'A-1'], 'deposit');

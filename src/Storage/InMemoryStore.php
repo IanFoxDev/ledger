@@ -161,21 +161,28 @@ final class InMemoryStore implements Store
         return $transaction;
     }
 
-    /**
-     * Every posting of an account in order, for tests that recalculate balances.
-     *
-     * @return list<Posting>
-     */
-    public function postingsOf(string $code): array
+    public function allAccounts(): iterable
     {
-        return $this->postings[$code] ?? [];
+        $accounts = $this->accounts;
+        ksort($accounts, \SORT_STRING);
+
+        return array_values($accounts);
     }
 
-    /**
-     * @return list<Account>
-     */
-    public function accounts(): array
+    public function chain(string $account): iterable
     {
-        return array_values($this->accounts);
+        return $this->postings[$account] ?? [];
+    }
+
+    public function transactionsAfter(int $afterId, int $limit): array
+    {
+        $found = [];
+        foreach ($this->transactions as $id => $transaction) {
+            if ($id > $afterId && \count($found) < $limit) {
+                $found[] = $transaction;
+            }
+        }
+
+        return $found;
     }
 }

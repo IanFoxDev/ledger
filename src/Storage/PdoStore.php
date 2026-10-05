@@ -135,6 +135,33 @@ final readonly class PdoStore implements Store
         return $row === null ? null : $this->transactionFrom($row);
     }
 
+    public function allAccounts(): iterable
+    {
+        $order = $this->mysql ? 'code' : 'code COLLATE "C"';
+        $statement = $this->pdo->prepare("SELECT code, type, currency, allow_negative FROM ledger_accounts ORDER BY $order");
+        $statement->execute();
+        while (\is_array($row = $statement->fetch(\PDO::FETCH_ASSOC))) {
+            yield $this->accountFrom(self::named($row));
+        }
+    }
+
+    public function chain(string $account): iterable
+    {
+        $statement = $this->pdo->prepare('SELECT account, sequence, side, amount, balance_after FROM ledger_postings WHERE account = ? ORDER BY sequence');
+        $statement->execute([$account]);
+        while (\is_array($row = $statement->fetch(\PDO::FETCH_ASSOC))) {
+            yield $this->postingFrom(self::named($row));
+        }
+    }
+
+    public function transactionsAfter(int $afterId, int $limit): array
+    {
+        $statement = $this->pdo->prepare(\sprintf('SELECT id, idempotency_key, hash, type, meta, reverses, created_at FROM ledger_transactions WHERE id > ? ORDER BY id LIMIT %d', max(1, $limit)));
+        $statement->execute([$afterId]);
+
+        return array_map(fn(array $row): Transaction => $this->transactionFrom($row), $this->rows($statement));
+    }
+
     public function append(Draft $draft): Transaction
     {
         $meta = json_encode($draft->meta === [] ? new \stdClass() : self::sorted($draft->meta), \JSON_UNESCAPED_SLASHES | \JSON_UNESCAPED_UNICODE | \JSON_THROW_ON_ERROR);
@@ -194,16 +221,7 @@ final readonly class PdoStore implements Store
         $id = self::int($row['id']);
         $statement = $this->pdo->prepare('SELECT account, sequence, side, amount, balance_after FROM ledger_postings WHERE transaction_id = ? ORDER BY position');
         $statement->execute([$id]);
-        $postings = [];
-        foreach ($this->rows($statement) as $p) {
-            $postings[] = new Posting(
-                self::string($p['account']),
-                self::int($p['sequence']),
-                Side::from(self::string($p['side'])),
-                Amount::of(self::string($p['amount'])),
-                Amount::of(self::string($p['balance_after'])),
-            );
-        }
+        $postings = array_map(fn(array $p): Posting => $this->postingFrom($p), $this->rows($statement));
         $meta = json_decode(self::string($row['meta']), true, 4, \JSON_THROW_ON_ERROR);
         $checked = [];
         foreach (\is_array($meta) ? $meta : [] as $name => $value) {
@@ -221,6 +239,20 @@ final readonly class PdoStore implements Store
             $checked,
             new \DateTimeImmutable(self::string($row['created_at']), new \DateTimeZone('UTC')),
             $row['reverses'] === null ? null : self::int($row['reverses']),
+        );
+    }
+
+    /**
+     * @param array<string, mixed> $row
+     */
+    private function postingFrom(array $row): Posting
+    {
+        return new Posting(
+            self::string($row['account']),
+            self::int($row['sequence']),
+            Side::from(self::string($row['side'])),
+            Amount::of(self::string($row['amount'])),
+            Amount::of(self::string($row['balance_after'])),
         );
     }
 
@@ -257,14 +289,24 @@ final readonly class PdoStore implements Store
     {
         $rows = [];
         while (\is_array($row = $statement->fetch(\PDO::FETCH_ASSOC))) {
-            $typed = [];
-            foreach ($row as $column => $value) {
-                $typed[(string) $column] = $value;
-            }
-            $rows[] = $typed;
+            $rows[] = self::named($row);
         }
 
         return $rows;
+    }
+
+    /**
+     * @param array<mixed> $row
+     * @return array<string, mixed>
+     */
+    private static function named(array $row): array
+    {
+        $typed = [];
+        foreach ($row as $column => $value) {
+            $typed[(string) $column] = $value;
+        }
+
+        return $typed;
     }
 
     /**

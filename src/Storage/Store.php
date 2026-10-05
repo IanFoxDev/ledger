@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace IanFoxDev\Ledger\Storage;
 
 use IanFoxDev\Ledger\Account;
+use IanFoxDev\Ledger\Posting;
 use IanFoxDev\Ledger\Transaction;
 
 /**
@@ -70,6 +71,27 @@ interface Store
      * transactionByKey().
      */
     public function reversalOf(int $id, bool $locking = false): ?Transaction;
+
+    /**
+     * Every account, ordered by code. For the check.
+     *
+     * @return iterable<Account>
+     */
+    public function allAccounts(): iterable;
+
+    /**
+     * Every posting of an account in sequence order, as stored. For the check.
+     *
+     * @return iterable<Posting>
+     */
+    public function chain(string $account): iterable;
+
+    /**
+     * Transactions with an id above $afterId, in id order, at most $limit. For the check.
+     *
+     * @return list<Transaction>
+     */
+    public function transactionsAfter(int $afterId, int $limit): array;
 
     /**
      * @throws DuplicateKey when the idempotency key is already taken

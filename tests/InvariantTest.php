@@ -64,6 +64,7 @@ final class InvariantTest extends TestCase
         self::assertGreaterThan(1000, $accepted);
         self::assertGreaterThan(100, $refused);
         $this->assertBooks($store, $ledger);
+        self::assertSame([], $ledger->verify()->violations);
     }
 
     public function testRetriesWithTheSameKeyDoNotMoveMoneyTwice(): void
@@ -134,10 +135,10 @@ final class InvariantTest extends TestCase
     private function assertBooks(InMemoryStore $store, Ledger $ledger): void
     {
         $net = [];
-        foreach ($store->accounts() as $account) {
+        foreach ($store->allAccounts() as $account) {
             $balance = Amount::zero();
             $sequence = 0;
-            foreach ($store->postingsOf($account->code) as $posting) {
+            foreach ($store->chain($account->code) as $posting) {
                 $sequence++;
                 self::assertSame($sequence, $posting->sequence, "gap in the chain of $account->code");
                 $delta = $account->direction($posting->side) > 0 ? $posting->amount : $posting->amount->negated();

@@ -12,7 +12,12 @@ use IanFoxDev\Ledger\Storage\PdoStore;
 
 require __DIR__ . '/../../vendor/autoload.php';
 
-[, $dsn, $worker, $operations, $users] = $argv;
+$args = $_SERVER['argv'] ?? [];
+if (!\is_array($args) || \count($args) !== 5) {
+    fwrite(\STDERR, "usage: worker.php DSN WORKER OPERATIONS USERS\n");
+    exit(2);
+}
+[$dsn, $worker, $operations, $users] = array_map(static fn(mixed $a): string => \is_string($a) ? $a : '', \array_slice($args, 1));
 $worker = (int) $worker;
 $users = (int) $users;
 mt_srand(1000 + $worker);

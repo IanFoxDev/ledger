@@ -18,11 +18,39 @@ jobs:
           # brick/math 0.12, PHPStan 2.1 and PHPUnit 12.5, the oldest versions composer.json allows.
           - php: "8.3"
             dependencies: lowest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_USER: ledger
+          POSTGRES_PASSWORD: ledger
+          POSTGRES_DB: ledger
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U ledger"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 15
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: ledger
+        ports: ["3306:3306"]
+        options: >-
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot"
+          --health-interval 3s
+          --health-timeout 5s
+          --health-retries 30
+    env:
+      LEDGER_PG_DSN: pgsql:host=127.0.0.1;port=5432;dbname=ledger;user=ledger;password=ledger
+      LEDGER_MYSQL_DSN: mysql:host=127.0.0.1;port=3306;dbname=ledger;user=root;password=root
     steps:
       - uses: actions/checkout@v7
       - uses: shivammathur/setup-php@v2
         with:
           php-version: ${{ matrix.php }}
+          extensions: pdo_pgsql, pdo_mysql
           coverage: none
       - run: composer update --no-progress ${{ matrix.dependencies == 'lowest' && '--prefer-lowest' || '' }}
       - run: vendor/bin/phpunit

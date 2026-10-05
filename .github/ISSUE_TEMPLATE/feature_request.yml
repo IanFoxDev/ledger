@@ -1,0 +1,15 @@
+name: Feature request
+description: An operation or integration you need
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: case
+    attributes:
+      label: The money flow
+      description: Which accounts, which events, with numbers. For example, a refund of credits already used.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: How you handle it today

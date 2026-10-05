@@ -1,0 +1,32 @@
+name: Bug report
+description: A balance, hold, credit or check that is wrong
+labels: ["bug"]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: ledger version
+    validations:
+      required: true
+  - type: input
+    id: database
+    attributes:
+      label: Database, version and isolation level
+      placeholder: PostgreSQL 17, READ COMMITTED
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: The calls that show it
+      description: The smallest sequence of open, post, transfer, hold or credits calls. Made-up account codes are fine.
+      render: php
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you got and what you expected
+      description: Include the output of `vendor/bin/ledger verify` if it reports something.
+    validations:
+      required: true

@@ -15,25 +15,33 @@ use IanFoxDev\Ledger\Ledger;
 use IanFoxDev\Ledger\Leg;
 use IanFoxDev\Ledger\Side;
 use IanFoxDev\Ledger\Storage\InMemoryStore;
+use IanFoxDev\Ledger\Storage\Store;
 use IanFoxDev\Ledger\Transaction;
 use PHPUnit\Framework\TestCase;
 
-final class LedgerTest extends TestCase
+/**
+ * The same scenarios run against every store: subclasses in Storage/ swap in PostgreSQL
+ * and MySQL.
+ */
+class LedgerTest extends TestCase
 {
-    private InMemoryStore $store;
-    private Ledger $ledger;
+    protected Ledger $ledger;
+
+    protected function store(): Store
+    {
+        return new InMemoryStore();
+    }
 
     protected function setUp(): void
     {
-        $this->store = new InMemoryStore();
-        $this->ledger = new Ledger($this->store, new FixedClock());
+        $this->ledger = new Ledger($this->store(), new FixedClock());
         $this->ledger->open(Account::asset('psp:stripe', 'USD'));
         $this->ledger->open(Account::liability('user:42', 'USD'));
         $this->ledger->open(Account::liability('user:7', 'USD'));
         $this->ledger->open(Account::revenue('revenue:fees', 'USD'));
     }
 
-    public function testDepositRaisesBothSidesOfTheBooks(): void
+    final public function testDepositRaisesBothSidesOfTheBooks(): void
     {
         $tx = $this->deposit('dep:1', 'user:42', 10_00);
 
@@ -44,7 +52,7 @@ final class LedgerTest extends TestCase
         self::assertSame(['order' => 'A-1'], $tx->meta);
     }
 
-    public function testTransferMovesMoneyBetweenAccountsOfTheSameNormalSide(): void
+    final public function testTransferMovesMoneyBetweenAccountsOfTheSameNormalSide(): void
     {
         $this->deposit('dep:1', 'user:42', 10_00);
 
@@ -57,7 +65,7 @@ final class LedgerTest extends TestCase
         self::assertSame('1000', (string) $this->ledger->balance('psp:stripe'));
     }
 
-    public function testTransferBetweenAnAssetAndALiabilityIsRefused(): void
+    final public function testTransferBetweenAnAssetAndALiabilityIsRefused(): void
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage('Post explicit debit and credit legs instead');
@@ -65,7 +73,7 @@ final class LedgerTest extends TestCase
         $this->ledger->transfer('x', 'psp:stripe', 'user:42', 100);
     }
 
-    public function testUnbalancedTransactionWritesNothing(): void
+    final public function testUnbalancedTransactionWritesNothing(): void
     {
         try {
             $this->ledger->post('bad', [Leg::debit('psp:stripe', 100), Leg::credit('user:42', 99)]);
@@ -77,7 +85,7 @@ final class LedgerTest extends TestCase
         self::assertNull($this->ledger->transaction(1));
     }
 
-    public function testEachCurrencyMustBalanceOnItsOwn(): void
+    final public function testEachCurrencyMustBalanceOnItsOwn(): void
     {
         $this->ledger->open(Account::asset('psp:eur', 'EUR'));
         $this->ledger->open(Account::liability('user:42:eur', 'EUR'));
@@ -89,7 +97,7 @@ final class LedgerTest extends TestCase
         $this->ledger->post('fx', [Leg::debit('psp:stripe', 100), Leg::credit('user:42:eur', 100)]);
     }
 
-    public function testAccountThatMustNotGoNegativeIsProtected(): void
+    final public function testAccountThatMustNotGoNegativeIsProtected(): void
     {
         $this->deposit('dep:1', 'user:42', 5_00);
 
@@ -103,7 +111,7 @@ final class LedgerTest extends TestCase
         self::assertTrue($this->ledger->balance('user:7')->isZero());
     }
 
-    public function testAccountAllowedToGoNegative(): void
+    final public function testAccountAllowedToGoNegative(): void
     {
         $this->ledger->open(Account::equity('world', 'USD', allowNegative: true));
 
@@ -112,7 +120,7 @@ final class LedgerTest extends TestCase
         self::assertSame('-200', (string) $this->ledger->balance('world'));
     }
 
-    public function testLegsThatRaiseABalanceComeFirst(): void
+    final public function testLegsThatRaiseABalanceComeFirst(): void
     {
         // user:42 is empty; the transaction credits it and then pays a fee from it.
         $tx = $this->ledger->post('dep+fee', [
@@ -128,7 +136,7 @@ final class LedgerTest extends TestCase
         self::assertSame([1, 2], [$chain[0]->sequence, $chain[1]->sequence]);
     }
 
-    public function testSameKeySameContentReturnsTheStoredTransaction(): void
+    final public function testSameKeySameContentReturnsTheStoredTransaction(): void
     {
         $first = $this->deposit('dep:1', 'user:42', 10_00);
         $again = $this->ledger->post('dep:1', [Leg::credit('user:42', 10_00), Leg::debit('psp:stripe', 10_00)], ['order' => 'A-1'], 'deposit');
@@ -137,7 +145,7 @@ final class LedgerTest extends TestCase
         self::assertSame('1000', (string) $this->ledger->balance('user:42'));
     }
 
-    public function testSameKeyDifferentContentThrows(): void
+    final public function testSameKeyDifferentContentThrows(): void
     {
         $this->deposit('dep:1', 'user:42', 10_00);
 
@@ -147,7 +155,7 @@ final class LedgerTest extends TestCase
         $this->deposit('dep:1', 'user:42', 10_01);
     }
 
-    public function testUnknownAccount(): void
+    final public function testUnknownAccount(): void
     {
         $this->expectException(UnknownAccount::class);
         $this->expectExceptionMessage('Account "user:404" is not open.');
@@ -155,7 +163,7 @@ final class LedgerTest extends TestCase
         $this->ledger->post('x', [Leg::debit('psp:stripe', 1), Leg::credit('user:404', 1)]);
     }
 
-    public function testOpeningAnAccountAgain(): void
+    final public function testOpeningAnAccountAgain(): void
     {
         $same = $this->ledger->open(Account::liability('user:42', 'USD'));
         self::assertSame('user:42', $same->code);
@@ -165,7 +173,7 @@ final class LedgerTest extends TestCase
         $this->ledger->open(Account::liability('user:42', 'EUR'));
     }
 
-    public function testAmountsBeyondSixtyFourBits(): void
+    final public function testAmountsBeyondSixtyFourBits(): void
     {
         $this->ledger->open(Account::asset('wallet:eth', 'ETH'));
         $this->ledger->open(Account::liability('user:42:eth', 'ETH'));
@@ -177,7 +185,7 @@ final class LedgerTest extends TestCase
         self::assertSame('50000000000000000000000', (string) $this->ledger->balance('user:42:eth'));
     }
 
-    public function testFloatsAndFractionsAreRejected(): void
+    final public function testFloatsAndFractionsAreRejected(): void
     {
         foreach (['10.50', '1e3', ' 1', '+1', '01'] as $bad) {
             try {
@@ -191,13 +199,13 @@ final class LedgerTest extends TestCase
         $this->ledger->transfer('x', 'user:42', 'user:7', 1, ['rate' => 1.5]);
     }
 
-    public function testLegAmountMustBePositive(): void
+    final public function testLegAmountMustBePositive(): void
     {
         $this->expectException(\InvalidArgumentException::class);
         Leg::debit('psp:stripe', 0);
     }
 
-    private function deposit(string $key, string $user, int $cents): Transaction
+    final protected function deposit(string $key, string $user, int $cents): Transaction
     {
         return $this->ledger->post($key, [Leg::debit('psp:stripe', $cents), Leg::credit($user, $cents)], ['order' => 'A-1'], 'deposit');
     }

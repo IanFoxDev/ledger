@@ -159,9 +159,13 @@ final class Ledger
             try {
                 return $this->store->append(new Draft($key, $hash, $type, $postings, $meta, $this->clock->now(), $reverses));
             } catch (DuplicateKey) {
-                // The same content locks the same accounts and would have waited for the
-                // first writer, so a key taken in between was used for something else.
-                throw $this->conflict($key, null, $hash);
+                // Another writer took the key after our lookup: possible when the caller's
+                // transaction read the key table before calling the ledger (an old snapshot).
+                $stored = $this->store->transactionByKey($key, true);
+                if ($stored !== null && $stored->hash === $hash) {
+                    return $stored;
+                }
+                throw $this->conflict($key, $stored?->hash, $hash);
             }
         });
     }

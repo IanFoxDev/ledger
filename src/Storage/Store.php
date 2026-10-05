@@ -44,9 +44,11 @@ interface Store
     public function head(string $code): ?Head;
 
     /**
-     * Reads the latest committed state, not a snapshot: called after lock().
+     * Called after lock(). With $locking, reads the latest committed row even when the
+     * database transaction has an older snapshot (MySQL REPEATABLE READ); the ledger asks
+     * for that after append() reported the key as taken.
      */
-    public function transactionByKey(string $key): ?Transaction;
+    public function transactionByKey(string $key, bool $locking = false): ?Transaction;
 
     public function transaction(int $id): ?Transaction;
 

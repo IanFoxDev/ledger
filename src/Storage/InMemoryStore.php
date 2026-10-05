@@ -85,7 +85,7 @@ final class InMemoryStore implements Store
         return new Head($account, $last->sequence ?? 0, $last->balanceAfter ?? Amount::zero());
     }
 
-    public function transactionByKey(string $key): ?Transaction
+    public function transactionByKey(string $key, bool $locking = false): ?Transaction
     {
         return isset($this->keys[$key]) ? $this->transactions[$this->keys[$key]] : null;
     }

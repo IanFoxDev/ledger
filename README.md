@@ -7,7 +7,9 @@ wallets, holds, refunds and prepaid credits that expire. Balances are derived fr
 postings, nothing is updated or deleted, and `verify()` recalculates everything and
 names what does not add up.
 
-> Status: in development, nothing released yet.
+> Status: v0.1. Until 1.0 a minor version may change the API; such changes are marked
+> **BREAKING** in the [CHANGELOG](CHANGELOG.md). Stored transactions keep verifying: a
+> change to what their hash covers would be breaking.
 
 The usual wallet is a `balance` column and `UPDATE accounts SET balance = balance + ?`.
 Two requests read the same balance and both spend it. A wrong row gets fixed in place, and

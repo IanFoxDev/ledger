@@ -7,6 +7,12 @@ API; such changes are marked **BREAKING**.
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-10-05
+
+The first release: a double-entry ledger that writes in the application's transaction,
+with derived balances, idempotent writes, reversals, holds, expiring credits and a check
+that recalculates everything. PostgreSQL and MySQL.
+
 ### Added
 
 - Accounts with a type and its normal side; transactions of debit and credit legs that
@@ -24,3 +30,6 @@ API; such changes are marked **BREAKING**.
   transactions, a content hash per transaction, reversals.
 - `PdoStore` for PostgreSQL and MySQL with schemas in `schema/`; joins the application's
   transaction, opens its own at READ COMMITTED. `InMemoryStore` for tests.
+
+[Unreleased]: https://github.com/IanFoxDev/ledger/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/IanFoxDev/ledger/releases/tag/v0.1.0

@@ -130,4 +130,63 @@ final class ConcurrencyTest extends TestCase
         self::assertSame([], $ledger->verify()->violations);
         self::assertSame(self::PROCESSES * 60 * 2, $ledger->verify()->postings);
     }
+
+    /**
+     * Forty jobs failed, and eight processes each try to give the credits back under a key
+     * of their own, as a retried queue message handled by different consumers would. Every
+     * job is refunded once.
+     */
+    #[DataProvider('databases')]
+    public function testParallelRefundsOfTheSameJobsRefundEachOnce(string $env): void
+    {
+        $pdo = Databases::fresh($env);
+        $ledger = new Ledger(new PdoStore($pdo));
+        $ledger->open(Account::asset('cash', 'USD'));
+        $ledger->open(Account::revenue('revenue', 'USD'));
+        $ledger->open(Account::liability('customer:credits', 'USD'));
+        $credits = $ledger->credits();
+        $credits->grant('order:1', 'customer:credits', 600_00, from: 'cash', revenue: 'revenue', breakage: 'revenue', expiresAt: new \DateTimeImmutable('+30 days'));
+        $credits->grant('order:2', 'customer:credits', 600_00, from: 'cash', revenue: 'revenue', breakage: 'revenue');
+        $jobs = [];
+        for ($j = 0; $j < 40; $j++) {
+            $jobs[] = $credits->consume("job:$j", 'customer:credits', 25_00)->id;
+        }
+
+        $processes = [];
+        for ($w = 0; $w < self::PROCESSES; $w++) {
+            $code = <<<'PHP'
+                require $argv[1];
+                [$dsn, $w, $jobs] = [$argv[2], (int) $argv[3], explode(',', $argv[4])];
+                mt_srand($w);
+                shuffle($jobs);
+                $credits = (new IanFoxDev\Ledger\Ledger(new IanFoxDev\Ledger\Storage\PdoStore(new PDO($dsn))))->credits();
+                $done = 0;
+                foreach ($jobs as $job) {
+                    try {
+                        $credits->refund("w$w:refund:$job", (int) $job);
+                        $done++;
+                    } catch (IanFoxDev\Ledger\Exception\AlreadyReversed) {
+                    }
+                }
+                echo $done;
+                PHP;
+            $processes[$w] = proc_open(
+                [\PHP_BINARY, '-r', $code, __DIR__ . '/../../vendor/autoload.php', (string) getenv($env), (string) $w, implode(',', $jobs)],
+                [1 => ['pipe', 'w'], 2 => ['pipe', 'w']],
+                $pipes[$w],
+            );
+        }
+        $refunded = 0;
+        foreach ($processes as $w => $process) {
+            self::assertIsResource($process);
+            $refunded += (int) stream_get_contents($pipes[$w][1]);
+            $err = (string) stream_get_contents($pipes[$w][2]);
+            self::assertSame(0, proc_close($process), "worker $w: " . substr($err, 0, 300));
+        }
+
+        self::assertSame(40, $refunded);
+        self::assertSame('120000', (string) $credits->available('customer:credits'));
+        self::assertSame('0', (string) $ledger->balance('revenue'));
+        self::assertSame([], $ledger->verify()->violations);
+    }
 }

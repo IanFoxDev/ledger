@@ -17,9 +17,13 @@ API; such changes are marked **BREAKING**.
   came from, and debits their revenue accounts. A consumption is refunded once. Credits
   returned to an expired lot stay expired unless `reopenUntil` moves them to a new lot
   (ADR 0003). New transaction type `credit.refund`; meta keys `reopen_until`, `reopens`.
+- `Credits::expireAll()` expires the lots of every credits account, one transaction per
+  lot, in batches with a cursor. `ledger credits:expire` runs it from cron and prints the
+  totals per breakage account.
 
 ### Changed
 
+- **BREAKING** for custom stores: `Store` has a new method, `codesContaining()`.
 - `expire()` can run for a lot again after a refund refilled it. The first expiry keeps
   the key `credits:expire:<lot id>`; later ones are `credits:expire:<lot id>:<n>`.
 - `verify()` accepts a `credit.refund` that is a part of the consumption it is linked to.

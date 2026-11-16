@@ -139,6 +139,19 @@ A lot keeps its expiry. Credits returned to a lot that has expired stay expired 
 pass `reopenUntil`; [ADR 0003](docs/adr/0003-refunds-of-used-credits.md) says why that is
 your call and not the library's.
 
+Expiry for every customer is one cron line. Each lot is expired in its own transaction,
+and a second run finds nothing to do:
+
+```bash
+5 0 * * * vendor/bin/ledger credits:expire --dsn='pgsql:host=db;dbname=app' --user=app
+```
+
+```
+37 lots expired
+expense:promo 21000
+revenue:breakage 184050
+```
+
 ## Isolation and throughput
 
 Run writes at READ COMMITTED. A transaction the ledger opens itself does that. When it
@@ -206,9 +219,8 @@ reconciliation. A test runs each of them on PostgreSQL and MySQL.
 
 ## Not yet
 
-Laravel and Symfony integration, multi-currency transactions with a rate, expiry across
-all customers in one call, snapshots for very long chains, writing an outbox event in the
-same transaction. Open an issue if you need one of them first.
+Laravel and Symfony integration, multi-currency transactions with a rate, snapshots for
+very long chains, writing an outbox event in the same transaction. Open an issue if you need one of them first.
 
 ## License
 

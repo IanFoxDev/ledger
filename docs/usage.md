@@ -105,6 +105,7 @@ $credits->consume($key, 'customer:acme:credits', 7_40, $meta);
 $credits->available('customer:acme:credits', $at = null);
 $credits->lots('customer:acme:credits');                // in the order they are used
 $credits->expire('customer:acme:credits', $at = null);  // list of expiry transactions
+$credits->expireAll($at = null, limit: 1000, after: ''); // every account; ExpiryRun
 $credits->refund($key, $consumption->id, $amount = null, reopenUntil: null, meta: []);
 ```
 
@@ -120,8 +121,15 @@ $credits->refund($key, $consumption->id, $amount = null, reopenUntil: null, meta
 - `expire()` moves what is left on each expired lot to its breakage account, one transaction
   per lot with the key `credits:expire:<grant id>`. Running it again does nothing. Expired
   lots are never used, so the order between `consume()` and `expire()` does not matter for
-  the customer; it matters for when breakage is recognized. Call it per account, for
-  example from a nightly job over your customers.
+  the customer; it matters for when breakage is recognized.
+- `expireAll()` does the same for every credits account in the ledger, so a nightly job
+  needs no list of customers. Each lot is expired in a transaction of its own: a run that
+  is killed keeps what it did, and the next one does the rest. It stops after `limit` lots
+  and returns an `ExpiryRun` with the transactions and `next`, which you pass as `after`
+  to continue (`complete()` is true when every lot was looked at). Call it outside a
+  database transaction. It looks at every lot ever granted, so its time grows with the
+  history, not with what expires tonight: a job for the night, not for every minute.
+  `vendor/bin/ledger credits:expire` runs it from cron.
 - `refund()` gives back what a `consume()` took, all of it or `$amount`: the job failed or
   cost less. Each lot is credited and its revenue account debited. A part is returned as
   if the job had taken that much less, so the lot that expires last is refilled first. A

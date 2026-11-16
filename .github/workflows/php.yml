@@ -67,3 +67,16 @@ jobs:
           coverage: none
       - run: composer update --no-progress
       - run: vendor/bin/php-cs-fixer check --diff
+
+  example:
+    name: examples/payments
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: examples/payments
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose up -d --build --wait
+      - run: docker compose exec -T app vendor/bin/phpunit
+      - run: docker compose logs
+        if: failure()

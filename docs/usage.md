@@ -14,7 +14,7 @@ $ledger = new Ledger(new PdoStore($pdo));
 fixed: `ledger_accounts`, `ledger_transactions`, `ledger_postings`.
 
 A second argument takes a `Clock` (`now(): DateTimeImmutable`). The default is the system
-clock in UTC; tests pass a fixed one.
+clock in UTC; tests pass a fixed one. Any further arguments are listeners (see Events).
 
 ## Accounts
 
@@ -140,6 +140,42 @@ $credits->refund($key, $consumption->id, $amount = null, reopenUntil: null, meta
   [ADR 0003](adr/0003-refunds-of-used-credits.md).
 - To return a purchase of credits for money, post it yourself:
   `post($key, [Leg::debit($lot->lotAccount, $lot->remaining), Leg::credit('cash:psp', $lot->remaining)])`.
+
+## Events
+
+```php
+use IanFoxDev\Ledger\Outbox\OutboxListener;
+use IanFoxDev\Outbox\Connection\PdoConnection;
+use IanFoxDev\Outbox\Outbox;
+
+$outbox = new Outbox(new PdoConnection($pdo), source: '/billing');
+$ledger = new Ledger(new PdoStore($pdo), null, new OutboxListener($outbox));
+```
+
+With `composer require ianfoxdev/outbox` and its table created, every posting records an
+event in the transaction that writes it. Nothing is published for a transaction that
+rolled back, and nothing is lost when the process dies after the commit.
+
+```json
+{"account":"user:42","sequence":7,"side":"C","amount":"5000","balance_after":"8763",
+ "transaction":{"id":12,"key":"psp:ch_1001","type":"transaction","meta":{},"reverses":null,
+ "created_at":"2026-11-16T09:30:00.000000Z"}}
+```
+
+- The event type is `ledger.account.posted`; the aggregate is the account (type
+  `ledger.account` unless you pass another), so the relay keeps one account's events in
+  order.
+- Delivery is at least once. A consumer keeps the last `sequence` it applied per account:
+  not above it is a duplicate, above it by more than one is a gap. Set the balance from
+  `balance_after`; do not add `amount`.
+- The third argument filters: `new OutboxListener($outbox, 'ledger.account',
+  fn (Posting $p, Transaction $t) => !str_contains($p->account, '@'))` leaves out hold and
+  lot accounts.
+- A retry that returns a stored transaction records nothing.
+
+For anything else, implement `TransactionListener` (`posted(Transaction $transaction)`)
+and pass it to the `Ledger`. It runs inside the transaction; an exception undoes the write.
+Why the event looks like this: [ADR 0004](adr/0004-events-are-per-posting-and-keyed-by-account.md).
 
 ## Checking
 

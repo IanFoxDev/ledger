@@ -20,6 +20,11 @@ API; such changes are marked **BREAKING**.
 - `Credits::expireAll()` expires the lots of every credits account, one transaction per
   lot, in batches with a cursor. `ledger credits:expire` runs it from cron and prints the
   totals per breakage account.
+- `TransactionListener`: the ledger calls `posted()` for every transaction it writes,
+  inside the database transaction. Listeners are passed to the `Ledger` constructor.
+- `Outbox\OutboxListener` records a `ledger.account.posted` event per posting in
+  `ianfoxdev/outbox` (optional, in `suggest`), keyed by account, with the sequence and
+  the balance after it (ADR 0004).
 
 ### Changed
 

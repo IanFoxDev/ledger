@@ -208,6 +208,21 @@ transaction, and can prove its balances.
 
 More: [docs/usage.md](docs/usage.md).
 
+## Events in the same transaction
+
+```php
+$outbox = new Outbox(new PdoConnection($pdo), source: '/billing');
+$ledger = new Ledger(new PdoStore($pdo), null, new OutboxListener($outbox));
+```
+
+With [ianfoxdev/outbox](https://github.com/IanFoxDev/outbox) installed, every posting
+records a `ledger.account.posted` event in the transaction that writes it; the relay
+publishes it to Kafka or RabbitMQ after the commit. The event is keyed by account and
+carries the posting's `sequence` and `balance_after`, so a consumer can drop a duplicate,
+notice a gap and set a balance instead of adding to it
+([ADR 0004](docs/adr/0004-events-are-per-posting-and-keyed-by-account.md)). Without the
+package the core has one interface, `TransactionListener`, and no dependency.
+
 ## Reading it from outside
 
 Reconciliation, invariant checks, exports and BI read the three tables with SQL. Their
@@ -220,7 +235,7 @@ reconciliation. A test runs each of them on PostgreSQL and MySQL.
 ## Not yet
 
 Laravel and Symfony integration, multi-currency transactions with a rate, snapshots for
-very long chains, writing an outbox event in the same transaction. Open an issue if you need one of them first.
+very long chains. Open an issue if you need one of them first.
 
 ## License
 

@@ -67,6 +67,10 @@ this call has 89472635a525.
 
 [examples/saas](examples/saas) runs a wallet and expiring credits end to end, including
 a retried capture, a refunded duplicate charge and credits that expire.
+[examples/payments](examples/payments) books deposits from a payment provider and runs
+them against [psp-sandbox](https://github.com/IanFoxDev/psp-sandbox): five parallel copies
+of one callback, a refund callback that comes before the capture, a callback that never
+comes.
 
 ## What it guarantees
 

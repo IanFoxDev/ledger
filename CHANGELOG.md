@@ -25,6 +25,8 @@ API; such changes are marked **BREAKING**.
 - `Outbox\OutboxListener` records a `ledger.account.posted` event per posting in
   `ianfoxdev/outbox` (optional, in `suggest`), keyed by account, with the sequence and
   the balance after it (ADR 0004).
+- `examples/payments`: deposits booked from payment provider callbacks, tested with
+  docker compose against psp-sandbox for duplicate, out of order and lost callbacks.
 
 ### Changed
 

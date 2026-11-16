@@ -1,0 +1,10 @@
+# The app does not know about the sandbox: the deposit reference picks the scenario.
+rules:
+  - when: { reference_prefix: "dup-" }
+    scenario: duplicate_callback
+    params: { times: 5, parallel: true }
+  - when: { reference_prefix: "ooo-" }
+    scenario: out_of_order
+    params: { window: 3s }
+  - when: { reference_prefix: "lost-" }
+    scenario: lost_callback

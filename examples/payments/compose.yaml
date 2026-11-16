@@ -1,0 +1,46 @@
+# docker compose up -d --build --wait
+# docker compose exec app vendor/bin/phpunit
+name: ledger-payments
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment: { POSTGRES_USER: shop, POSTGRES_PASSWORD: shop, POSTGRES_DB: shop }
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "shop"]
+      interval: 1s
+      retries: 30
+
+  psp:
+    image: ghcr.io/ianfoxdev/psp-sandbox:1
+    ports: ["8090:8090"] # web UI at http://localhost:8090/_sandbox/
+    environment:
+      PSP_CALLBACK_URL: http://app:8000/psp/callback
+      PSP_WEBHOOK_SECRET: whsec_dGVzdC1zZWNyZXQ=
+      PSP_SCENARIOS_FILE: /etc/psp-sandbox/scenarios.yaml
+      # A failed callback comes back twice, a second apart, then the delivery is failed.
+      PSP_RETRY_SCHEDULE: 0s,1s,1s
+    volumes:
+      - ./scenarios.yaml:/etc/psp-sandbox/scenarios.yaml:ro
+
+  app:
+    build: .
+    # The whole repository is mounted: composer.json takes the ledger from ../..
+    volumes: ["../..:/src"]
+    working_dir: /src/examples/payments
+    environment:
+      DATABASE_DSN: pgsql:host=postgres;dbname=shop;user=shop;password=shop
+      PSP_URL: http://psp:8090
+      PSP_WEBHOOK_SECRET: whsec_dGVzdC1zZWNyZXQ=
+    command: >
+      sh -c "composer install --no-progress --no-interaction
+      && php bin/schema.php
+      && frankenphp php-server --listen :8000 --root public"
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 8000) ? 0 : 1);"]
+      interval: 2s
+      start_period: 120s
+      retries: 60
+    depends_on:
+      postgres: { condition: service_healthy }
+      psp: { condition: service_healthy }

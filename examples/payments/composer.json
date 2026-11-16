@@ -1,0 +1,28 @@
+{
+    "name": "ianfoxdev/ledger-example-payments",
+    "description": "Deposits through a payment provider booked in the ledger, tested against psp-sandbox.",
+    "type": "project",
+    "license": "MIT",
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../..",
+            "options": { "versions": { "ianfoxdev/ledger": "0.2.x-dev" } }
+        }
+    ],
+    "require": {
+        "php": "^8.4",
+        "ext-pdo_pgsql": "*",
+        "ianfoxdev/ledger": "0.2.x-dev"
+    },
+    "require-dev": {
+        "phpunit/phpunit": "^12.5"
+    },
+    "autoload": {
+        "psr-4": { "Example\\Payments\\": "src/" }
+    },
+    "autoload-dev": {
+        "psr-4": { "Example\\Payments\\Tests\\": "tests/" }
+    },
+    "config": { "sort-packages": true }
+}

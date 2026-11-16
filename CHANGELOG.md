@@ -7,6 +7,13 @@ API; such changes are marked **BREAKING**.
 
 ## [Unreleased]
 
+### Added
+
+- The schema is a contract for readers: the tables, their columns and what they mean keep
+  the same compatibility promise as the PHP API (ADR 0002). `docs/reading.md` has SQL for
+  balances, statements, turnover, a trial balance and reconciliation exports, and a test
+  runs every query in it on PostgreSQL and MySQL.
+
 ## [0.1.0] - 2026-10-05
 
 The first release: a double-entry ledger that writes in the application's transaction,

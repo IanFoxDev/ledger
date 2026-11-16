@@ -183,12 +183,20 @@ transaction, and can prove its balances.
 
 More: [docs/usage.md](docs/usage.md).
 
+## Reading it from outside
+
+Reconciliation, invariant checks, exports and BI read the three tables with SQL. Their
+names, columns and meaning are a contract with the same compatibility promise as the PHP
+API ([ADR 0002](docs/adr/0002-the-schema-is-a-read-contract.md)), and
+[docs/reading.md](docs/reading.md) has the queries: a balance at a moment, a statement
+with stable pages, turnover, a trial balance, the movements on a provider's account for
+reconciliation. A test runs each of them on PostgreSQL and MySQL.
+
 ## Not yet
 
 Laravel and Symfony integration, multi-currency transactions with a rate, refunds of used
-credits, expiry across all customers in one call, snapshots for very long chains, export to
-[recon](https://github.com/IanFoxDev/recon), writing an outbox event in the same
-transaction. Open an issue if you need one of them first.
+credits, expiry across all customers in one call, snapshots for very long chains, writing
+an outbox event in the same transaction. Open an issue if you need one of them first.
 
 ## License
 

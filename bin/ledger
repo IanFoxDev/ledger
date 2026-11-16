@@ -15,19 +15,26 @@ foreach ([__DIR__ . '/../vendor/autoload.php', __DIR__ . '/../../../autoload.php
 
 $usage = <<<'TXT'
     Usage: ledger verify [--dsn=DSN] [--user=USER] [--json]
+           ledger credits:expire [--dsn=DSN] [--user=USER] [--at=TIME] [--limit=N] [--json]
 
-    Recalculates every balance from the postings and checks every transaction against
-    what was written. The DSN can also come from LEDGER_DSN, the user from LEDGER_USER and
-    the password from LEDGER_PASSWORD.
-
+    verify recalculates every balance from the postings and checks every transaction
+    against what was written.
     Exit codes: 0 nothing wrong, 1 violations found, 2 usage or connection error.
+
+    credits:expire moves what is left on expired credit lots of every account to their
+    breakage accounts, one transaction per lot. --at is a UTC time (default: now), --limit
+    stops after that many lots. Run it from cron; running it twice does nothing twice.
+    Exit codes: 0 done, 1 stopped at --limit with lots left, 2 usage or connection error.
+
+    The DSN can also come from LEDGER_DSN, the user from LEDGER_USER and the password from
+    LEDGER_PASSWORD.
 
     TXT;
 
 $options = [];
 $commands = [];
 foreach (array_slice($argv, 1) as $arg) {
-    if (preg_match('/^--(dsn|user)=(.*)$/s', $arg, $m) === 1) {
+    if (preg_match('/^--(dsn|user|at|limit)=(.*)$/s', $arg, $m) === 1) {
         $options[$m[1]] = $m[2];
     } elseif ($arg === '--json' || $arg === '--help') {
         $options[substr($arg, 2)] = true;
@@ -35,7 +42,7 @@ foreach (array_slice($argv, 1) as $arg) {
         $commands[] = $arg;
     }
 }
-if (isset($options['help']) || $commands !== ['verify']) {
+if (isset($options['help']) || !in_array($commands, [['verify'], ['credits:expire']], true)) {
     fwrite(isset($options['help']) ? STDOUT : STDERR, $usage);
     exit(isset($options['help']) ? 0 : 2);
 }
@@ -44,6 +51,49 @@ $dsn = $option('dsn', 'LEDGER_DSN');
 if ($dsn === null) {
     fwrite(STDERR, "No DSN: pass --dsn or set LEDGER_DSN.\n\n" . $usage);
     exit(2);
+}
+$json = static fn(array $data): string => json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+
+if ($commands === ['credits:expire']) {
+    $limit = $options['limit'] ?? null;
+    if ($limit !== null && (!is_string($limit) || preg_match('/^[1-9][0-9]*$/', $limit) !== 1)) {
+        fwrite(STDERR, "--limit must be a positive number.\n");
+        exit(2);
+    }
+    try {
+        $at = is_string($options['at'] ?? null) ? new DateTimeImmutable($options['at'], new DateTimeZone('UTC')) : null;
+        $pdo = new PDO($dsn, $option('user', 'LEDGER_USER'), getenv('LEDGER_PASSWORD') ?: null);
+        $credits = (new Ledger(new PdoStore($pdo)))->credits();
+        $lots = 0;
+        $breakage = [];
+        $after = '';
+        do {
+            $run = $credits->expireAll($at, $limit === null ? 500 : min(500, (int) $limit - $lots), $after);
+            foreach ($run->transactions as $transaction) {
+                $lots++;
+                foreach ($transaction->postings as $posting) {
+                    if (!str_contains($posting->account, '@lot:')) {
+                        $breakage[$posting->account] = (string) IanFoxDev\Ledger\Amount::of($breakage[$posting->account] ?? '0')->plus($posting->amount);
+                    }
+                }
+            }
+            $after = $run->next ?? '';
+        } while (!$run->complete() && ($limit === null || $lots < (int) $limit));
+    } catch (Throwable $e) {
+        fwrite(STDERR, 'ledger: ' . $e->getMessage() . "\n");
+        exit(2);
+    }
+    ksort($breakage, SORT_STRING);
+    if (isset($options['json'])) {
+        echo $json(['lots' => $lots, 'complete' => $run->complete(), 'breakage' => $breakage]);
+    } else {
+        printf("%d lot%s expired\n", $lots, $lots === 1 ? '' : 's');
+        foreach ($breakage as $account => $amount) {
+            printf("%s %s\n", $account, $amount);
+        }
+        echo $run->complete() ? '' : "stopped at --limit, lots may be left\n";
+    }
+    exit($run->complete() ? 0 : 1);
 }
 
 try {
@@ -55,13 +105,13 @@ try {
 }
 
 if (isset($options['json'])) {
-    echo json_encode([
+    echo $json([
         'ok' => $result->ok(),
         'accounts' => $result->accounts,
         'transactions' => $result->transactions,
         'postings' => $result->postings,
         'violations' => $result->violations,
-    ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR) . "\n";
+    ]);
 } else {
     printf("%d accounts, %d transactions, %d postings\n", $result->accounts, $result->transactions, $result->postings);
     foreach ($result->violations as $violation) {

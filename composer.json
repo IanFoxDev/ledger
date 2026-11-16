@@ -30,12 +30,14 @@
     },
     "require-dev": {
         "friendsofphp/php-cs-fixer": "^3.64",
+        "ianfoxdev/outbox": "^1.0",
         "phpstan/phpstan": "^2.1",
         "phpunit/phpunit": "^12.5 || ^13.0"
     },
     "suggest": {
         "ext-pdo_pgsql": "To keep the ledger in PostgreSQL",
-        "ext-pdo_mysql": "To keep the ledger in MySQL"
+        "ext-pdo_mysql": "To keep the ledger in MySQL",
+        "ianfoxdev/outbox": "To record an event per posting in the same transaction (Outbox\\OutboxListener)"
     },
     "bin": [
         "bin/ledger"

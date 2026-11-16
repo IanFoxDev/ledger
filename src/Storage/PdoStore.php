@@ -114,6 +114,15 @@ final readonly class PdoStore implements Store
         return array_map(fn(array $row): Head => $this->headOf($this->accountFrom($row), false), $this->rows($statement));
     }
 
+    public function codesContaining(string $infix, string $after, int $limit): array
+    {
+        // Compared and ordered in the column's own collation, so the primary key serves it.
+        $statement = $this->pdo->prepare(\sprintf("SELECT code FROM ledger_accounts WHERE code > ? AND code LIKE ? ESCAPE '!' ORDER BY code LIMIT %d", max(1, $limit)));
+        $statement->execute([$after, '%' . strtr($infix, ['!' => '!!', '%' => '!%', '_' => '!_']) . '%']);
+
+        return array_map(static fn(array $row): string => self::string($row['code']), $this->rows($statement));
+    }
+
     public function head(string $code): ?Head
     {
         $account = $this->account($code);

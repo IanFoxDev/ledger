@@ -22,6 +22,7 @@ use IanFoxDev\Ledger\Storage\Store;
 final class Credits
 {
     private const string NEVER = '99991231T235959Z';
+    private const int PAGE = 500;
 
     /**
      * @internal
@@ -282,25 +283,71 @@ final class Credits
             sort($codes, \SORT_STRING);
             $expired = [];
             foreach ($this->store->lock($codes) as $code => $head) {
-                if (!$head->balance->isPositive()) {
-                    continue;
+                if ($head->balance->isPositive()) {
+                    $expired[] = $this->breakage($code, $head);
                 }
-                $lot = $this->lotOf($code, $head->balance);
-                // A refund can put credits back on a lot that was already emptied here.
-                $key = 'credits:expire:' . $lot->id;
-                if ($this->store->transactionByKey($key, true) !== null) {
-                    $key .= ':' . ($head->sequence + 1);
-                }
-                $expired[] = $this->ledger->post(
-                    $key,
-                    [Leg::debit($code, $head->balance), Leg::credit($lot->breakage, $head->balance)],
-                    ['credits' => $account, 'lot' => $lot->id],
-                    'credit.expire',
-                );
             }
 
             return $expired;
         });
+    }
+
+    /**
+     * expire() for every credits account in the ledger: a nightly job calls this instead of
+     * looping over its customers. Each lot is expired in a transaction of its own, so a
+     * run that stops halfway keeps what it did and the next run does the rest. Call it
+     * outside a database transaction, or the locks of every lot are held to the end.
+     *
+     * Stops after $limit lots were expired and returns where to continue. Looking at a lot
+     * that has nothing left costs a read, so the run time grows with the number of lots
+     * ever granted, not with the number that expire tonight.
+     */
+    public function expireAll(?\DateTimeImmutable $at = null, int $limit = 1000, string $after = ''): ExpiryRun
+    {
+        $at ??= $this->clock->now();
+        $expired = [];
+        do {
+            $page = $this->store->codesContaining('@lot:', $after, self::PAGE);
+            foreach ($page as $code) {
+                $after = $code;
+                if (!self::expired($code, $at) || $this->store->head($code)?->balance->isPositive() !== true) {
+                    continue;
+                }
+                $transaction = $this->store->transactional(function () use ($code): ?Transaction {
+                    $head = $this->store->lock([$code])[$code] ?? null;
+
+                    return $head !== null && $head->balance->isPositive() ? $this->breakage($code, $head) : null;
+                });
+                if ($transaction !== null) {
+                    $expired[] = $transaction;
+                }
+                if (\count($expired) >= $limit) {
+                    return new ExpiryRun($expired, $code);
+                }
+            }
+        } while (\count($page) === self::PAGE);
+
+        return new ExpiryRun($expired, null);
+    }
+
+    /**
+     * Under the lot's lock: what is left on it goes to its breakage account.
+     */
+    private function breakage(string $code, Head $head): Transaction
+    {
+        $lot = $this->lotOf($code, $head->balance);
+        // A refund can put credits back on a lot that was already emptied here.
+        $key = 'credits:expire:' . $lot->id;
+        if ($this->store->transactionByKey($key, true) !== null) {
+            $key .= ':' . ($head->sequence + 1);
+        }
+
+        return $this->ledger->post(
+            $key,
+            [Leg::debit($code, $head->balance), Leg::credit($lot->breakage, $head->balance)],
+            ['credits' => $lot->account, 'lot' => $lot->id],
+            'credit.expire',
+        );
     }
 
     private function lotOf(string $lotAccount, Amount $remaining, ?Transaction $grant = null): Lot

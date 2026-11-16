@@ -48,6 +48,14 @@ interface Store
     public function headsWithPrefix(string $prefix): array;
 
     /**
+     * Codes of the accounts that contain $infix, at most $limit, in an order the store
+     * keeps between calls. $after is the last code of the previous page, or '' to start.
+     *
+     * @return list<string>
+     */
+    public function codesContaining(string $infix, string $after, int $limit): array;
+
+    /**
      * The head of an account's chain without a lock, or null if the account does not exist.
      */
     public function head(string $code): ?Head;

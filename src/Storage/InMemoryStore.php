@@ -87,6 +87,15 @@ final class InMemoryStore implements Store
         return $heads;
     }
 
+    public function codesContaining(string $infix, string $after, int $limit): array
+    {
+        $codes = array_map('strval', array_keys($this->accounts));
+        sort($codes, \SORT_STRING);
+        $found = array_filter($codes, static fn(string $code): bool => strcmp($code, $after) > 0 && str_contains($code, $infix));
+
+        return \array_slice(array_values($found), 0, max(1, $limit));
+    }
+
     public function head(string $code): ?Head
     {
         $account = $this->accounts[$code] ?? null;

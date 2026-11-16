@@ -285,6 +285,56 @@ class CreditsTest extends TestCase
         $this->credits->refund('x', $job->id, 3_01);
     }
 
+    /**
+     * The nightly job: one call for every customer, without a list of customers.
+     */
+    final public function testExpiryAcrossAllCustomers(): void
+    {
+        $this->ledger->open(Account::liability('customer:8:credits', 'USD'));
+        $this->buy('order:1', 5_00, '+1 day');
+        $this->promo('promo:1', 2_00, '+1 day');
+        $used = $this->buy('order:2', 3_00, '+12 hours');
+        $alive = $this->buy('order:3', 4_00, '+30 days');
+        $this->credits->grant('order:4', 'customer:8:credits', 7_00, from: 'cash:stripe', revenue: 'revenue:usage', breakage: 'revenue:breakage', expiresAt: $this->clock->now()->modify('+1 day'));
+        $this->credits->grant('order:5', 'customer:8:credits', 1_00, from: 'cash:stripe', revenue: 'revenue:usage', breakage: 'revenue:breakage');
+        $this->credits->consume('job:1', 'customer:7:credits', 3_00);
+        self::assertSame('0', (string) $this->ledger->balance($used->lotAccount));
+        $this->clock->advance('+2 days');
+
+        $run = $this->credits->expireAll();
+
+        self::assertTrue($run->complete());
+        self::assertCount(3, $run->transactions);
+        self::assertSame(['customer:7:credits', 'customer:7:credits', 'customer:8:credits'], array_map(static fn($t): mixed => $t->meta['credits'], $run->transactions));
+        // 5.00 and 7.00 of paid credits; the promotion's 2.00 goes back to its expense, and
+        // the lot the job emptied has nothing to expire.
+        self::assertSame('1200', (string) $this->ledger->balance('revenue:breakage'));
+        self::assertSame('0', (string) $this->ledger->balance('expense:promo'));
+        self::assertSame('400', (string) $this->ledger->balance($alive->lotAccount));
+        self::assertSame('100', (string) $this->credits->available('customer:8:credits'));
+        self::assertSame([], $this->credits->expireAll()->transactions);
+        self::assertTrue($this->ledger->verify()->ok());
+    }
+
+    final public function testExpiryAcrossAllCustomersInBatches(): void
+    {
+        for ($c = 1; $c <= 5; $c++) {
+            $this->ledger->open(Account::liability("customer:b$c:credits", 'USD'));
+            $this->credits->grant("order:b$c", "customer:b$c:credits", 1_00, from: 'cash:stripe', revenue: 'revenue:usage', breakage: 'revenue:breakage', expiresAt: $this->clock->now()->modify('+1 day'));
+        }
+        $this->clock->advance('+2 days');
+
+        $first = $this->credits->expireAll(limit: 2);
+        self::assertCount(2, $first->transactions);
+        self::assertFalse($first->complete());
+        self::assertSame('200', (string) $this->ledger->balance('revenue:breakage'));
+
+        $rest = $this->credits->expireAll(limit: 10, after: (string) $first->next);
+        self::assertCount(3, $rest->transactions);
+        self::assertTrue($rest->complete());
+        self::assertSame('500', (string) $this->ledger->balance('revenue:breakage'));
+    }
+
     private function promo(string $key, int $cents, string $expires): \IanFoxDev\Ledger\Lot
     {
         return $this->credits->grant($key, 'customer:7:credits', $cents, from: 'expense:promo', revenue: 'revenue:usage', breakage: 'expense:promo', expiresAt: $this->clock->now()->modify($expires));

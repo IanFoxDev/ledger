@@ -6,6 +6,7 @@ namespace IanFoxDev\Ledger\Tests;
 
 use IanFoxDev\Ledger\Account;
 use IanFoxDev\Ledger\Credits;
+use IanFoxDev\Ledger\Exception\AlreadyReversed;
 use IanFoxDev\Ledger\Exception\IdempotencyConflict;
 use IanFoxDev\Ledger\Exception\InsufficientFunds;
 use IanFoxDev\Ledger\Exception\NotReversible;
@@ -145,6 +146,148 @@ class CreditsTest extends TestCase
 
         $this->expectException(NotReversible::class);
         $this->ledger->reverse('order:1:refund', $lot->id);
+    }
+
+    final public function testAFailedJobGivesTheCreditsBackToTheirLots(): void
+    {
+        $paid = $this->buy('order:1', 50_00, '+30 days');
+        $promo = $this->promo('promo:1', 10_00, '+7 days');
+        $job = $this->credits->consume('job:1', 'customer:7:credits', 12_00);
+
+        $refund = $this->credits->refund('job:1:failed', $job->id, meta: ['reason' => 'timeout']);
+
+        self::assertSame('credit.refund', $refund->type);
+        self::assertSame($job->id, $refund->reverses);
+        self::assertSame(['credits' => 'customer:7:credits', 'reopen_until' => null, 'reason' => 'timeout'], $refund->meta);
+        self::assertSame('1000', (string) $this->ledger->balance($promo->lotAccount));
+        self::assertSame('5000', (string) $this->ledger->balance($paid->lotAccount));
+        self::assertSame('0', (string) $this->ledger->balance('revenue:usage'));
+        self::assertSame('6000', (string) $this->credits->available('customer:7:credits'));
+        self::assertTrue($this->ledger->verify()->ok());
+    }
+
+    /**
+     * The job took 12.00 and cost 7.00. The lots end up as if 7.00 had been taken: all of
+     * it from the promotion that expires first, nothing from the paid lot.
+     */
+    final public function testAPartialRefundRefillsTheLotThatExpiresLast(): void
+    {
+        $paid = $this->buy('order:1', 50_00, '+30 days');
+        $promo = $this->promo('promo:1', 10_00, '+7 days');
+        $job = $this->credits->consume('job:1', 'customer:7:credits', 12_00);
+
+        $this->credits->refund('job:1:unused', $job->id, 5_00);
+
+        self::assertSame('5000', (string) $this->ledger->balance($paid->lotAccount));
+        self::assertSame('300', (string) $this->ledger->balance($promo->lotAccount));
+        self::assertSame('700', (string) $this->ledger->balance('revenue:usage'));
+        self::assertTrue($this->ledger->verify()->ok());
+    }
+
+    final public function testAConsumptionIsRefundedOnce(): void
+    {
+        $this->buy('order:1', 50_00, '+30 days');
+        $job = $this->credits->consume('job:1', 'customer:7:credits', 12_00);
+        $refund = $this->credits->refund('job:1:unused', $job->id, 5_00);
+
+        self::assertSame($refund->id, $this->credits->refund('job:1:unused', $job->id, 5_00)->id);
+        try {
+            $this->credits->refund('job:1:unused', $job->id, 6_00);
+            self::fail('expected IdempotencyConflict');
+        } catch (IdempotencyConflict) {
+        }
+        try {
+            $this->credits->refund('job:1:again', $job->id, 1_00);
+            self::fail('expected AlreadyReversed');
+        } catch (AlreadyReversed $e) {
+            self::assertSame(\sprintf('Transaction %d was already undone by %d (key "job:1:unused").', $job->id, $refund->id), $e->getMessage());
+        }
+        self::assertSame('4300', (string) $this->credits->available('customer:7:credits'));
+    }
+
+    /**
+     * The job ran on the lot's last day and failed after it. By default the credits come
+     * back expired: the revenue of the job becomes breakage, the customer gets nothing.
+     */
+    final public function testCreditsReturnedToAnExpiredLotStayExpired(): void
+    {
+        $lot = $this->buy('order:1', 5_00, '+1 day');
+        $job = $this->credits->consume('job:1', 'customer:7:credits', 3_00);
+        $this->clock->advance('+2 days');
+        self::assertCount(1, $this->credits->expire('customer:7:credits'));
+
+        $this->credits->refund('job:1:failed', $job->id);
+
+        self::assertSame('300', (string) $this->ledger->balance($lot->lotAccount));
+        self::assertTrue($this->credits->available('customer:7:credits')->isZero());
+        $again = $this->credits->expire('customer:7:credits');
+        self::assertCount(1, $again);
+        // The lot's fifth posting: grant, job, first expiry, refund, and this one.
+        self::assertSame('credits:expire:' . $lot->id . ':5', $again[0]->key);
+        self::assertSame('500', (string) $this->ledger->balance('revenue:breakage'));
+        self::assertSame('0', (string) $this->ledger->balance('revenue:usage'));
+        self::assertSame([], $this->credits->expire('customer:7:credits'));
+        self::assertTrue($this->ledger->verify()->ok());
+    }
+
+    final public function testAnExpiredLotCanBeReopenedForTheRefund(): void
+    {
+        $old = $this->buy('order:1', 5_00, '+1 day');
+        $alive = $this->buy('order:2', 5_00, '+30 days');
+        $job = $this->credits->consume('job:1', 'customer:7:credits', 7_00);
+        $this->clock->advance('+2 days');
+        $until = $this->clock->now()->modify('+7 days');
+
+        $refund = $this->credits->refund('job:1:failed', $job->id, reopenUntil: $until);
+
+        // 5.00 of the job came from the lot that has expired since, 2.00 from the other.
+        self::assertSame('0', (string) $this->ledger->balance($old->lotAccount));
+        self::assertSame('500', (string) $this->ledger->balance($alive->lotAccount));
+        $lots = $this->credits->lots('customer:7:credits');
+        self::assertCount(3, $lots);
+        self::assertSame('credits:reopen:' . $refund->id . ':' . $old->id, $lots[1]->key);
+        self::assertSame(['500', '500'], [(string) $lots[1]->granted, (string) $lots[1]->remaining]);
+        self::assertEquals($until, $lots[1]->expiresAt);
+        self::assertSame(['revenue:usage', 'revenue:breakage'], [$lots[1]->revenue, $lots[1]->breakage]);
+        self::assertSame('1000', (string) $this->credits->available('customer:7:credits'));
+
+        // A retry three days later, when more could have expired, changes nothing.
+        $this->clock->advance('+3 days');
+        self::assertSame($refund->id, $this->credits->refund('job:1:failed', $job->id, reopenUntil: $until)->id);
+        self::assertCount(3, $this->credits->lots('customer:7:credits'));
+        self::assertSame('1000', (string) $this->credits->available('customer:7:credits'));
+
+        $this->clock->advance('+5 days');
+        $this->credits->expire('customer:7:credits');
+        self::assertSame('500', (string) $this->ledger->balance('revenue:breakage'));
+        self::assertTrue($this->ledger->verify()->ok());
+    }
+
+    final public function testOnlyAConsumptionIsRefundedAndNotMoreThanItUsed(): void
+    {
+        $lot = $this->buy('order:1', 5_00, null);
+        $job = $this->credits->consume('job:1', 'customer:7:credits', 3_00);
+
+        try {
+            $this->credits->refund('x', $lot->id);
+            self::fail('expected NotReversible');
+        } catch (NotReversible $e) {
+            self::assertSame(\sprintf('Transaction %d is not a consumption of credits.', $lot->id), $e->getMessage());
+        }
+        try {
+            $this->ledger->reverse('x', $job->id);
+            self::fail('expected NotReversible');
+        } catch (NotReversible $e) {
+            self::assertStringContainsString('Credits::refund()', $e->getMessage());
+        }
+        $this->expectException(\InvalidArgumentException::class);
+        $this->expectExceptionMessage(\sprintf('A refund must be between 1 and the 300 that transaction %d used, got 301.', $job->id));
+        $this->credits->refund('x', $job->id, 3_01);
+    }
+
+    private function promo(string $key, int $cents, string $expires): \IanFoxDev\Ledger\Lot
+    {
+        return $this->credits->grant($key, 'customer:7:credits', $cents, from: 'expense:promo', revenue: 'revenue:usage', breakage: 'expense:promo', expiresAt: $this->clock->now()->modify($expires));
     }
 
     private function buy(string $order, int $cents, ?string $expires): \IanFoxDev\Ledger\Lot

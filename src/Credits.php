@@ -6,6 +6,7 @@ namespace IanFoxDev\Ledger;
 
 use IanFoxDev\Ledger\Exception\IdempotencyConflict;
 use IanFoxDev\Ledger\Exception\InsufficientFunds;
+use IanFoxDev\Ledger\Exception\NotReversible;
 use IanFoxDev\Ledger\Exception\UnknownAccount;
 use IanFoxDev\Ledger\Storage\Head;
 use IanFoxDev\Ledger\Storage\Store;
@@ -172,6 +173,96 @@ final class Credits
     }
 
     /**
+     * Gives back credits a consumption used: the job failed, or cost less than was taken.
+     * The whole consumption by default, or $amount of it. Each lot gets back what was taken
+     * from it and its revenue account is debited; a part is returned as if the consumption
+     * had been that much smaller, so the lot that expires last is refilled first.
+     *
+     * A lot that has expired by now gets its credits back too, and they stay expired: the
+     * next expire() moves them to breakage. Pass $reopenUntil to put them on a new lot the
+     * customer can use until that moment instead.
+     *
+     * A consumption is refunded once (AlreadyReversed after that). A retry with the same
+     * key returns the first refund.
+     *
+     * @param array<mixed> $meta string keys to strings, integers, booleans or null
+     */
+    public function refund(
+        string $key,
+        int $consumptionId,
+        int|string|Amount|null $amount = null,
+        ?\DateTimeImmutable $reopenUntil = null,
+        array $meta = [],
+    ): Transaction {
+        $consumption = $this->store->transaction($consumptionId);
+        if ($consumption === null || $consumption->type !== 'credit.consume') {
+            throw new NotReversible(\sprintf('Transaction %d is not a consumption of credits.', $consumptionId));
+        }
+        $account = (string) $consumption->meta['credits'];
+        $taken = [];
+        foreach ($consumption->postings as $posting) {
+            if (str_starts_with($posting->account, $account . '@lot:')) {
+                $taken[$posting->account] = $posting->amount;
+            }
+        }
+        $used = array_reduce($taken, static fn(Amount $sum, Amount $part): Amount => $sum->plus($part), Amount::zero());
+        $amount = $amount === null ? $used : ($amount instanceof Amount ? $amount : Amount::of($amount));
+        if (!$amount->isPositive() || $amount->compareTo($used) > 0) {
+            throw new \InvalidArgumentException(\sprintf('A refund must be between 1 and the %s that transaction %d used, got %s.', $used, $consumptionId, $amount));
+        }
+
+        // Lots are used in the order of their codes; give back in the opposite order.
+        krsort($taken, \SORT_STRING);
+        $legs = [];
+        $debits = [];
+        $returned = [];
+        $left = $amount;
+        foreach ($taken as $code => $part) {
+            if ($left->isZero()) {
+                break;
+            }
+            $give = $part->compareTo($left) < 0 ? $part : $left;
+            $lot = $this->lotOf($code, Amount::zero());
+            $legs[] = Leg::credit($code, $give);
+            $debits[$lot->revenue] = ($debits[$lot->revenue] ?? Amount::zero())->plus($give);
+            $returned[$code] = [$lot, $give];
+            $left = $left->minus($give);
+        }
+        foreach ($debits as $revenue => $sum) {
+            $legs[] = Leg::debit((string) $revenue, $sum);
+        }
+        $reserved = [
+            'credits' => $account,
+            'reopen_until' => $reopenUntil?->setTimezone(new \DateTimeZone('UTC'))->format('Y-m-d\TH:i:s\Z'),
+        ];
+
+        return $this->store->transactional(function () use ($key, $consumption, $legs, $reserved, $meta, $returned, $reopenUntil, $account): Transaction {
+            $refund = $this->ledger->postUndoing($key, $consumption, $legs, $reserved + $meta, 'credit.refund');
+            if ($reopenUntil === null) {
+                return $refund;
+            }
+            // Which lots had expired is decided by the time of the refund, not of this
+            // call, so a retry days later reopens the same lots under the same keys.
+            foreach ($returned as $code => [$lot, $give]) {
+                if (self::expired($code, $refund->createdAt)) {
+                    $this->grant(
+                        'credits:reopen:' . $refund->id . ':' . $lot->id,
+                        $account,
+                        $give,
+                        from: $code,
+                        revenue: $lot->revenue,
+                        breakage: $lot->breakage,
+                        expiresAt: $reopenUntil,
+                        meta: ['reopens' => $lot->id],
+                    );
+                }
+            }
+
+            return $refund;
+        });
+    }
+
+    /**
      * Moves what is left on the account's expired lots to their breakage accounts, one
      * transaction per lot. Running it again does nothing for lots already expired.
      *
@@ -195,8 +286,13 @@ final class Credits
                     continue;
                 }
                 $lot = $this->lotOf($code, $head->balance);
+                // A refund can put credits back on a lot that was already emptied here.
+                $key = 'credits:expire:' . $lot->id;
+                if ($this->store->transactionByKey($key, true) !== null) {
+                    $key .= ':' . ($head->sequence + 1);
+                }
                 $expired[] = $this->ledger->post(
-                    'credits:expire:' . $lot->id,
+                    $key,
                     [Leg::debit($code, $head->balance), Leg::credit($lot->breakage, $head->balance)],
                     ['credits' => $account, 'lot' => $lot->id],
                     'credit.expire',

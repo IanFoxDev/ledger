@@ -223,8 +223,11 @@ final class Ledger
         if (str_starts_with($original->type, 'hold')) {
             throw new NotReversible(\sprintf('Transaction %d is a %s; release or capture the hold instead.', $original->id, $original->type));
         }
+        if ($original->type === 'credit.consume') {
+            throw new NotReversible(\sprintf('Transaction %d is a %s; give the credits back with Credits::refund().', $original->id, $original->type));
+        }
         if (str_starts_with($original->type, 'credit.')) {
-            throw new NotReversible(\sprintf('Transaction %d is a %s; credits are not reversed in this version.', $original->id, $original->type));
+            throw new NotReversible(\sprintf('Transaction %d is a %s; it is not reversed.', $original->id, $original->type));
         }
         if ($original->reverses !== null) {
             throw new NotReversible(\sprintf('Transaction %d is a reversal of %d; post the original again instead.', $original->id, $original->reverses));
@@ -242,6 +245,25 @@ final class Ledger
     public function reversalOf(int $transactionId): ?Transaction
     {
         return $this->store->reversalOf($transactionId);
+    }
+
+    /**
+     * A transaction linked to the one it undoes in part, for Credits::refund(). The link
+     * is the same unique one a reversal uses, so the original is undone at most once.
+     *
+     * @internal
+     *
+     * @param list<Leg> $legs
+     * @param array<mixed> $meta
+     */
+    public function postUndoing(string $key, Transaction $original, array $legs, array $meta, string $type): Transaction
+    {
+        return $this->write($key, $legs, self::meta($meta), $type, $original->id, function (bool $locking) use ($original): void {
+            $undone = $this->store->reversalOf($original->id, $locking);
+            if ($undone !== null) {
+                throw new AlreadyReversed(\sprintf('Transaction %d was already undone by %d (key "%s").', $original->id, $undone->id, $undone->key));
+            }
+        });
     }
 
     /**

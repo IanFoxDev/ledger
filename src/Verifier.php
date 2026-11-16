@@ -88,12 +88,37 @@ final class Verifier
         }
         if ($transaction->reverses !== null) {
             $original = $this->store->transaction($transaction->reverses);
-            if ($original === null || self::mirrored($original) !== self::lines($transaction)) {
+            $matches = $transaction->type === 'credit.refund'
+                ? $original?->type === 'credit.consume' && self::within($transaction, $original)
+                : $original !== null && self::mirrored($original) === self::lines($transaction);
+            if (!$matches) {
                 $violations[] = new Violation(Violation::REVERSAL_MISMATCH, \sprintf('Transaction %d does not mirror transaction %d it reverses.', $id, $transaction->reverses), null, $id);
             }
         }
 
         return $violations;
+    }
+
+    /**
+     * A refund of credits can be partial: every posting is on the other side of what the
+     * consumption posted to that account, and not larger.
+     */
+    private static function within(Transaction $refund, Transaction $consumption): bool
+    {
+        $limits = [];
+        foreach ($consumption->postings as $posting) {
+            $at = $posting->account . ' ' . $posting->side->opposite()->value;
+            $limits[$at] = ($limits[$at] ?? Amount::zero())->plus($posting->amount);
+        }
+        foreach ($refund->postings as $posting) {
+            $at = $posting->account . ' ' . $posting->side->value;
+            if (!isset($limits[$at]) || $posting->amount->compareTo($limits[$at]) > 0) {
+                return false;
+            }
+            $limits[$at] = $limits[$at]->minus($posting->amount);
+        }
+
+        return true;
     }
 
     /**

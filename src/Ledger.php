@@ -22,11 +22,16 @@ final class Ledger
 
     private ?Credits $credits = null;
 
+    /** @var list<TransactionListener> */
+    private readonly array $listeners;
+
     public function __construct(
         private readonly Store $store,
         ?Clock $clock = null,
+        TransactionListener ...$listeners,
     ) {
         $this->clock = $clock ?? new SystemClock();
+        $this->listeners = array_values($listeners);
     }
 
     /**
@@ -299,10 +304,15 @@ final class Ledger
                     $check(false);
                 }
 
-                return $this->store->append(new Draft($key, $hash, $type, $this->postings($codes, $legs, $heads), $meta, $this->clock->now(), $reverses));
+                $transaction = $this->store->append(new Draft($key, $hash, $type, $this->postings($codes, $legs, $heads), $meta, $this->clock->now(), $reverses));
             } catch (InsufficientFunds | DuplicateKey | DuplicateReversal $e) {
                 return $this->recheck($e, $key, $hash, $reverses, $check);
             }
+            foreach ($this->listeners as $listener) {
+                $listener->posted($transaction);
+            }
+
+            return $transaction;
         });
     }
 

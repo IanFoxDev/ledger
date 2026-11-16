@@ -32,16 +32,17 @@ as the PHP API. Writing stays private: rows are inserted by the library only.
   applied: by account code, not in the order the caller listed the legs.
 - `ledger_transactions.created_at` is UTC and comes from the application's clock.
 - `ledger_transactions.reverses` is the id of the transaction this one undoes, or NULL.
-  At most one transaction reverses another.
+  At most one transaction undoes another. A `reversal` mirrors its original in full; a
+  `credit.refund` can undo a part of a `credit.consume`.
 - `ledger_transactions.meta` is a JSON object with scalar values, stored as text.
 - Rows are inserted and never updated or deleted.
 - The codes the ledger makes itself: `<account>@hold:<24 hex>` for a hold and
   `<account>@lot:<expiry in UTC as YYYYMMDDTHHMMSSZ>:<12 hex>` for a
   credit lot. An account whose code contains neither is one the application opened.
 - The transaction types the ledger writes: `transaction`, `transfer`, `reversal`, `hold`,
-  `hold.capture`, `hold.release`, `credit.grant`, `credit.consume`, `credit.expire`, and
-  the meta keys it sets on them (`hold`, `credits`, `lot`, `request`, `expires_at`,
-  `revenue`, `breakage`).
+  `hold.capture`, `hold.release`, `credit.grant`, `credit.consume`, `credit.expire`,
+  `credit.refund`, and the meta keys it sets on them (`hold`, `credits`, `lot`, `request`,
+  `expires_at`, `revenue`, `breakage`, `reopen_until`, `reopens`).
 
 **What can be added without notice in a minor version**
 

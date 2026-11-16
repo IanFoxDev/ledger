@@ -127,6 +127,18 @@ breakage account. For promotional credits, breakage can be the promotion expense
 which undoes the part of the expense that was never used. An expired lot is never used,
 even before `expire()` has run.
 
+When a job fails or costs less than was taken, the credits go back to the lots they came
+from:
+
+```php
+$job = $credits->consume('job:7', 'customer:acme:credits', 12_00);
+$credits->refund('job:7:unused', $job->id, 5_00);   // the lots look as if the job took 7.00
+```
+
+A lot keeps its expiry. Credits returned to a lot that has expired stay expired unless you
+pass `reopenUntil`; [ADR 0003](docs/adr/0003-refunds-of-used-credits.md) says why that is
+your call and not the library's.
+
 ## Isolation and throughput
 
 Run writes at READ COMMITTED. A transaction the ledger opens itself does that. When it
@@ -194,9 +206,9 @@ reconciliation. A test runs each of them on PostgreSQL and MySQL.
 
 ## Not yet
 
-Laravel and Symfony integration, multi-currency transactions with a rate, refunds of used
-credits, expiry across all customers in one call, snapshots for very long chains, writing
-an outbox event in the same transaction. Open an issue if you need one of them first.
+Laravel and Symfony integration, multi-currency transactions with a rate, expiry across
+all customers in one call, snapshots for very long chains, writing an outbox event in the
+same transaction. Open an issue if you need one of them first.
 
 ## License
 

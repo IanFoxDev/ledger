@@ -13,6 +13,18 @@ API; such changes are marked **BREAKING**.
   the same compatibility promise as the PHP API (ADR 0002). `docs/reading.md` has SQL for
   balances, statements, turnover, a trial balance and reconciliation exports, and a test
   runs every query in it on PostgreSQL and MySQL.
+- `Credits::refund()` gives back what a consumption used, all or a part, to the lots it
+  came from, and debits their revenue accounts. A consumption is refunded once. Credits
+  returned to an expired lot stay expired unless `reopenUntil` moves them to a new lot
+  (ADR 0003). New transaction type `credit.refund`; meta keys `reopen_until`, `reopens`.
+
+### Changed
+
+- `expire()` can run for a lot again after a refund refilled it. The first expiry keeps
+  the key `credits:expire:<lot id>`; later ones are `credits:expire:<lot id>:<n>`.
+- `verify()` accepts a `credit.refund` that is a part of the consumption it is linked to.
+- `Ledger::reverse()` on a consumption of credits names `Credits::refund()` in its
+  `NotReversible` message.
 
 ## [0.1.0] - 2026-10-05
 

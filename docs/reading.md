@@ -161,5 +161,6 @@ SELECT id, meta::jsonb ->> 'order' AS order_id FROM ledger_transactions WHERE ty
 SELECT id, JSON_UNQUOTE(JSON_EXTRACT(meta, '$.order')) AS order_id FROM ledger_transactions WHERE type = 'transfer';
 ```
 
-The keys `hold`, `credits`, `lot`, `request`, `expires_at`, `revenue` and `breakage` are
-set by the ledger on its own transaction types; do not reuse them for something else.
+The keys `hold`, `credits`, `lot`, `request`, `expires_at`, `revenue`, `breakage`,
+`reopen_until` and `reopens` are set by the ledger on its own transaction types; do not
+reuse them for something else.

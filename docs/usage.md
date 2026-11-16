@@ -75,8 +75,8 @@ the stored transaction; nothing is written. Different content throws
 `reverse()` posts every leg of the original on the other side, with type `reversal` and a
 link to the original (`$transaction->reverses`, `reversalOf($id)`). A transaction is
 reversed at most once (`AlreadyReversed`). A reversal is not reversed; post the original
-again under a new key. Holds and credits are not reversed: release or capture a hold, and
-refunds of used credits are not in this version (`NotReversible`). Reversing a deposit the
+again under a new key. Holds and credits are not reversed (`NotReversible`): release or capture a
+hold, and give used credits back with `Credits::refund()`. Reversing a deposit the
 user already spent throws `InsufficientFunds`: refund the purchase first.
 
 ## Holds
@@ -105,6 +105,7 @@ $credits->consume($key, 'customer:acme:credits', 7_40, $meta);
 $credits->available('customer:acme:credits', $at = null);
 $credits->lots('customer:acme:credits');                // in the order they are used
 $credits->expire('customer:acme:credits', $at = null);  // list of expiry transactions
+$credits->refund($key, $consumption->id, $amount = null, reopenUntil: null, meta: []);
 ```
 
 - The credits account must be a liability. Its own balance stays 0: the credits are on its
@@ -121,6 +122,16 @@ $credits->expire('customer:acme:credits', $at = null);  // list of expiry transa
   lots are never used, so the order between `consume()` and `expire()` does not matter for
   the customer; it matters for when breakage is recognized. Call it per account, for
   example from a nightly job over your customers.
+- `refund()` gives back what a `consume()` took, all of it or `$amount`: the job failed or
+  cost less. Each lot is credited and its revenue account debited. A part is returned as
+  if the job had taken that much less, so the lot that expires last is refilled first. A
+  consumption is refunded once (`AlreadyReversed`); the same key returns the first refund.
+- Credits returned to a lot that has expired stay expired, and the next `expire()` moves
+  them to breakage. Pass `reopenUntil` to put that part on a new lot the customer can use
+  until then. Why this is the caller's choice:
+  [ADR 0003](adr/0003-refunds-of-used-credits.md).
+- To return a purchase of credits for money, post it yourself:
+  `post($key, [Leg::debit($lot->lotAccount, $lot->remaining), Leg::credit('cash:psp', $lot->remaining)])`.
 
 ## Checking
 

@@ -7,7 +7,7 @@ wallets, holds, refunds and prepaid credits that expire. Balances are derived fr
 postings, nothing is updated or deleted, and `verify()` recalculates everything and
 names what does not add up.
 
-> Status: v0.1. Until 1.0 a minor version may change the API; such changes are marked
+> Status: v0.2. Until 1.0 a minor version may change the API; such changes are marked
 > **BREAKING** in the [CHANGELOG](CHANGELOG.md). Stored transactions keep verifying: a
 > change to what their hash covers would be breaking.
 

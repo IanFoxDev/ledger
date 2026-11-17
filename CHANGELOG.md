@@ -7,6 +7,13 @@ API; such changes are marked **BREAKING**.
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-17
+
+The ledger is now readable by tools outside PHP: the schema is a stated contract, SQL for
+the usual reports is tested, and an example books provider callbacks, reconciles them
+with recon and checks the tables with money-checks. Credits can be refunded and expired
+in bulk, and every posting can be published through the outbox.
+
 ### Added
 
 - The schema is a contract for readers: the tables, their columns and what they mean keep
@@ -63,5 +70,6 @@ that recalculates everything. PostgreSQL and MySQL.
 - `PdoStore` for PostgreSQL and MySQL with schemas in `schema/`; joins the application's
   transaction, opens its own at READ COMMITTED. `InMemoryStore` for tests.
 
-[Unreleased]: https://github.com/IanFoxDev/ledger/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/IanFoxDev/ledger/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/IanFoxDev/ledger/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/IanFoxDev/ledger/releases/tag/v0.1.0

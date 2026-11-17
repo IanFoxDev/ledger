@@ -10,4 +10,10 @@
             <directory>tests</directory>
         </testsuite>
     </testsuites>
+    <!-- ReconTest reads the report of a recon run and runs on its own, see README.md. -->
+    <groups>
+        <exclude>
+            <group>recon</group>
+        </exclude>
+    </groups>
 </phpunit>

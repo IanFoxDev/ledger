@@ -70,7 +70,8 @@ a retried capture, a refunded duplicate charge and credits that expire.
 [examples/payments](examples/payments) books deposits from a payment provider and runs
 them against [psp-sandbox](https://github.com/IanFoxDev/psp-sandbox): five parallel copies
 of one callback, a refund callback that comes before the capture, a callback that never
-comes.
+comes. [recon](https://github.com/IanFoxDev/recon) then compares the ledger with the
+provider's report and finds the deposit nobody booked.
 
 ## What it guarantees
 

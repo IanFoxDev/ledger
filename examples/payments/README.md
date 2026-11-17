@@ -8,7 +8,10 @@ was booked.
 
 ```bash
 docker compose up -d --build --wait
-docker compose exec app vendor/bin/phpunit
+docker compose exec app vendor/bin/phpunit             # deposits through every failure
+docker compose exec app php bin/provider-report.php    # the provider's report to exports/
+docker compose run --rm recon                          # ledger against the report, exit 1
+docker compose exec app vendor/bin/phpunit --group recon
 ```
 
 The sandbox UI at http://localhost:8090/_sandbox/ shows every callback and what the app
@@ -50,8 +53,37 @@ books its capture under the key the capture callback will use, then the refund. 
 
 **`lost-`: no callback at all.** The provider captured the money and the ledger has
 nothing. The app cannot see this from inside: the deposit only exists on the
-provider's side. The test asserts the gap. Finding it is the job of reconciliation,
-which compares the ledger with the provider's report.
+provider's side. The test asserts the gap, and reconciliation finds it.
+
+## Reconciliation
+
+Every morning finance downloads the provider's Balance report and compares it with the
+books. Here [bin/provider-report.php](bin/provider-report.php) downloads it from the
+sandbox, which serves Stripe's itemized format, and
+[recon](https://github.com/IanFoxDev/recon) compares it with the ledger.
+
+The ledger side is one query on the ledger's own tables, [recon/ledger.sql](recon/ledger.sql):
+every posting on `cash:psp` with the payment id from the transaction's meta. No export
+table to keep in step: the tables are a read contract
+([ADR 0002](../../docs/adr/0002-the-schema-is-a-read-contract.md)). recon sums both
+sides per payment, so a deposit with a refund is compared as one net amount
+([recon.yaml](recon.yaml)).
+
+After the four tests:
+
+```
+reconciled 3, differences 1, missing_in_ledger 1
+```
+
+The three deposits that got their callbacks reconcile: the duplicated one was booked
+once, the one refunded out of order nets to the same amount on both sides. The fourth
+is the lost callback: on the provider's report, not in the ledger. recon exits with 1,
+and `out/report.html` names the payment. `ReconTest` checks that this is the only
+difference and that it is a `lost-` deposit.
+
+What to do with it is a business decision the example leaves out: book the deposit from
+the provider's data under the same key the callback would have used, so a late callback
+changes nothing.
 
 ## Running it against your own code
 

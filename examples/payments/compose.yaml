@@ -2,6 +2,7 @@
 # docker compose exec app vendor/bin/phpunit
 # docker compose exec app php bin/provider-report.php
 # docker compose run --rm recon
+# docker compose run --rm money-checks
 name: ledger-payments
 
 services:
@@ -58,5 +59,16 @@ services:
     environment:
       LEDGER_DSN: postgres://shop:shop@postgres:5432/shop
     volumes: ["./:/work"]
+    depends_on:
+      postgres: { condition: service_healthy }
+
+  # Not started by "up": the ledger's invariants, read from the tables.
+  money-checks:
+    image: ghcr.io/ianfoxdev/money-checks:0.8
+    profiles: [checks]
+    command: ["run", "-c", "/checks/checks.yaml"]
+    environment:
+      LEDGER_PG_DSN: postgres://shop:shop@postgres:5432/shop
+    volumes: ["./checks:/checks:ro"]
     depends_on:
       postgres: { condition: service_healthy }

@@ -27,7 +27,8 @@ API; such changes are marked **BREAKING**.
   the balance after it (ADR 0004).
 - `examples/payments`: deposits booked from payment provider callbacks, tested with
   docker compose against psp-sandbox for duplicate, out of order and lost callbacks,
-  then reconciled with recon against the provider's Balance report.
+  then reconciled with recon against the provider's Balance report and checked with
+  the money-checks recipes for the ledger's tables.
 
 ### Changed
 

@@ -71,7 +71,9 @@ a retried capture, a refunded duplicate charge and credits that expire.
 them against [psp-sandbox](https://github.com/IanFoxDev/psp-sandbox): five parallel copies
 of one callback, a refund callback that comes before the capture, a callback that never
 comes. [recon](https://github.com/IanFoxDev/recon) then compares the ledger with the
-provider's report and finds the deposit nobody booked.
+provider's report and finds the deposit nobody booked, and
+[money-checks](https://github.com/IanFoxDev/money-checks) checks the ledger's invariants
+from its tables.
 
 ## What it guarantees
 

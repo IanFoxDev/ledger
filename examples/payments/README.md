@@ -12,6 +12,7 @@ docker compose exec app vendor/bin/phpunit             # deposits through every 
 docker compose exec app php bin/provider-report.php    # the provider's report to exports/
 docker compose run --rm recon                          # ledger against the report, exit 1
 docker compose exec app vendor/bin/phpunit --group recon
+docker compose run --rm money-checks                   # the ledger's invariants, exit 0
 ```
 
 The sandbox UI at http://localhost:8090/_sandbox/ shows every callback and what the app
@@ -84,6 +85,17 @@ difference and that it is a `lost-` deposit.
 What to do with it is a business decision the example leaves out: book the deposit from
 the provider's data under the same key the callback would have used, so a late callback
 changes nothing.
+
+## Invariants
+
+Reconciliation compares the ledger with the outside world. The ledger's own rules (every
+transaction balances, every `balance_after` follows from the one before, no account
+below zero without permission, no expired credits left unexpired) are checked by
+[money-checks](https://github.com/IanFoxDev/money-checks) with its
+[ledger recipes](https://github.com/IanFoxDev/money-checks/tree/master/recipes/ledger),
+copied into [checks/](checks) as they are. They read the tables, like recon, and need no
+PHP. After the tests all five pass; a `balance_after` changed by hand in psql shows up
+in `ledger_balance_chain` on the next run.
 
 ## Running it against your own code
 

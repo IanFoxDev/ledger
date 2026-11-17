@@ -1,0 +1,18 @@
+# The ledger's cash:psp account against the provider's Balance report.
+# docker compose run --rm recon
+version: 1
+ledger:
+  sql:
+    dsn_env: LEDGER_DSN
+    query_file: recon/ledger.sql
+  columns: {key: payment, amount: amount, fee: fee, currency: currency}
+provider:
+  csv: {path: exports/balance.csv, profile: stripe_balance}
+  columns: {key: payment_intent_id}
+match:
+  # A payment is a charge and its refunds on the provider's side, a deposit and its
+  # refunds in the ledger: compare the sums.
+  group: true
+report:
+  html: out/report.html
+  json: out/report.json

@@ -1,5 +1,7 @@
 # docker compose up -d --build --wait
 # docker compose exec app vendor/bin/phpunit
+# docker compose exec app php bin/provider-report.php
+# docker compose run --rm recon
 name: ledger-payments
 
 services:
@@ -12,7 +14,7 @@ services:
       retries: 30
 
   psp:
-    image: ghcr.io/ianfoxdev/psp-sandbox:1
+    image: ${PSP_SANDBOX_IMAGE:-ghcr.io/ianfoxdev/psp-sandbox:1}
     ports: ["8090:8090"] # web UI at http://localhost:8090/_sandbox/
     environment:
       PSP_CALLBACK_URL: http://app:8000/psp/callback
@@ -44,3 +46,17 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       psp: { condition: service_healthy }
+
+  # Not started by "up": run it after the provider's report is downloaded.
+  recon:
+    image: ghcr.io/ianfoxdev/recon:0.1
+    profiles: [recon]
+    # The app container writes exports/ as root; recon writes out/ next to it.
+    user: "0:0"
+    working_dir: /work
+    command: ["run", "-c", "/work/recon.yaml"]
+    environment:
+      LEDGER_DSN: postgres://shop:shop@postgres:5432/shop
+    volumes: ["./:/work"]
+    depends_on:
+      postgres: { condition: service_healthy }

@@ -67,13 +67,9 @@ this call has 89472635a525.
 
 [examples/saas](examples/saas) runs a wallet and expiring credits end to end, including
 a retried capture, a refunded duplicate charge and credits that expire.
-[examples/payments](examples/payments) books deposits from a payment provider and runs
-them against [psp-sandbox](https://github.com/IanFoxDev/psp-sandbox): five parallel copies
-of one callback, a refund callback that comes before the capture, a callback that never
-comes. [recon](https://github.com/IanFoxDev/recon) then compares the ledger with the
-provider's report and finds the deposit nobody booked, and
-[money-checks](https://github.com/IanFoxDev/money-checks) checks the ledger's invariants
-from its tables.
+[examples/payments](examples/payments) books deposits from a payment provider through
+duplicate, out of order and lost callbacks, then reconciles the result; see
+[In a payment flow](#in-a-payment-flow).
 
 ## What it guarantees
 
@@ -238,6 +234,38 @@ API ([ADR 0002](docs/adr/0002-the-schema-is-a-read-contract.md)), and
 [docs/reading.md](docs/reading.md) has the queries: a balance at a moment, a statement
 with stable pages, turnover, a trial balance, the movements on a provider's account for
 reconciliation. A test runs each of them on PostgreSQL and MySQL.
+
+## In a payment flow
+
+Book a provider callback under the provider's own id. The key is the deduplication, so the
+handler needs no table of processed events:
+
+```php
+// payment.captured
+$ledger->post("psp:{$payment['id']}:captured", [
+    Leg::debit('cash:psp', $payment['captured_amount']),
+    Leg::credit("user:$user", $payment['captured_amount']),
+], ['payment' => $payment['id'], 'user' => $user], 'deposit');
+```
+
+Five copies of the callback at once write one transaction; the other four get it back.
+A refund callback that comes before the capture callback cannot be booked against an
+empty wallet: fetch the payment from the provider and book its capture first, under the
+same key. When the capture callback arrives, the key is taken with the same content and
+nothing is written. For that, build the key and the content only from fields that do not
+change after capture.
+
+Around the ledger, each piece reads or drives it from outside:
+
+| | Does | Finds |
+|---|---|---|
+| [psp-sandbox](https://github.com/IanFoxDev/psp-sandbox) | A provider in tests that fails on demand | Handlers that book twice or not at all |
+| [recon](https://github.com/IanFoxDev/recon) | `cash:psp` against the provider's Balance report | The deposit whose callback never came |
+| [money-checks](https://github.com/IanFoxDev/money-checks) | The [ledger recipes](https://github.com/IanFoxDev/money-checks/tree/master/recipes/ledger) on a replica | Rows written around the library, an expiry job that did not run |
+
+[examples/payments](examples/payments) runs all of it with docker compose, and CI runs
+it on every push: after the tests, recon reports `reconciled 3, missing_in_ledger 1`,
+the lost callback, and the invariant checks pass.
 
 ## Not yet
 

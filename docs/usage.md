@@ -70,6 +70,14 @@ The same key with the same content (type, legs in any order, meta, reversal link
 the stored transaction; nothing is written. Different content throws
 `IdempotencyConflict` with the first 12 characters of both hashes.
 
+### Provider callbacks
+
+Key a provider event by the provider's id (`psp:<payment>:captured`, `psp:<refund>`) and
+build the meta from fields that do not change after the event. A duplicate callback, a
+retry after a timeout and a capture booked early from a refund callback all land on the
+same key with the same content. [examples/payments](../examples/payments) shows the
+handler and runs it against psp-sandbox.
+
 ### Reversals
 
 `reverse()` posts every leg of the original on the other side, with type `reversal` and a

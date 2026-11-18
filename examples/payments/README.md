@@ -63,12 +63,11 @@ books. Here [bin/provider-report.php](bin/provider-report.php) downloads it from
 sandbox, which serves Stripe's itemized format, and
 [recon](https://github.com/IanFoxDev/recon) compares it with the ledger.
 
-The ledger side is one query on the ledger's own tables, [recon/ledger.sql](recon/ledger.sql):
-every posting on `cash:psp` with the payment id from the transaction's meta. No export
-table to keep in step: the tables are a read contract
-([ADR 0002](../../docs/adr/0002-the-schema-is-a-read-contract.md)). recon sums both
-sides per payment, so a deposit with a refund is compared as one net amount
-([recon.yaml](recon.yaml)).
+recon reads the ledger's own tables: every posting on `cash:psp` with the payment id
+from the transaction's meta, set up in one line of [recon.yaml](recon.yaml) with its
+`ianfoxdev_ledger` source. No export table to keep in step: the tables are a read
+contract ([ADR 0002](../../docs/adr/0002-the-schema-is-a-read-contract.md)). recon sums
+both sides per payment, so a deposit with a refund is compared as one net amount.
 
 After the four tests:
 

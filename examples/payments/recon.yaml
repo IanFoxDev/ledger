@@ -2,10 +2,8 @@
 # docker compose run --rm recon
 version: 1
 ledger:
-  sql:
-    dsn_env: LEDGER_DSN
-    query_file: recon/ledger.sql
-  columns: {key: payment, amount: amount, fee: fee, currency: currency}
+  # Postings on cash:psp, keyed by the provider's payment id in the transaction's meta.
+  ianfoxdev_ledger: {dsn_env: LEDGER_DSN, account: "cash:psp", key: payment}
 provider:
   csv: {path: exports/balance.csv, profile: stripe_balance}
   columns: {key: payment_intent_id}

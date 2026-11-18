@@ -50,7 +50,7 @@ services:
 
   # Not started by "up": run it after the provider's report is downloaded.
   recon:
-    image: ghcr.io/ianfoxdev/recon:0.1
+    image: ghcr.io/ianfoxdev/recon:0.2
     profiles: [recon]
     # The app container writes exports/ as root; recon writes out/ next to it.
     user: "0:0"
